@@ -1,0 +1,162 @@
+import streamlit as st
+import httpx
+import pandas as pd
+from datetime import date, timedelta
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
+
+st.set_page_config(page_title="Búsqueda Histórica - SueñaLotto", page_icon="🔍", layout="wide")
+
+st.markdown("""
+<style>
+    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%); }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; }
+    .card h3 { color: #f1f5f9; }
+    .result-number-sm { display: inline-block; background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; font-weight: bold; 
+                        font-size: 1rem; width: 2rem; height: 2rem; text-align: center; line-height: 2rem; border-radius: 0.3rem; margin: 0 0.1rem; }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<h1 style="color:#fbbf24;text-align:center;">🔍 Buscador Histórico Inteligente</h1>', unsafe_allow_html=True)
+st.markdown('<p style="color:#94a3b8;text-align:center;">Busca resultados históricos con filtros combinados</p>', unsafe_allow_html=True)
+
+@st.cache_data(ttl=60)
+def api_get(path, params=None):
+    try:
+        r = httpx.get(f"{API_URL}{path}", params=params, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except:
+        return None
+
+with st.container():
+    st.markdown('<div class="card"><h3>🔧 Filtros de Búsqueda</h3>', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        juego = st.selectbox("Juego", ["Todos", "Pick 3", "Pick 4"], key="hist_juego")
+        juego_param = juego if juego != "Todos" else None
+    
+    with col2:
+        sorteo = st.selectbox("Sorteo", ["Todos", "E (Evening)", "M (Midday)"], key="hist_sorteo")
+        sorteo_param = sorteo[0] if sorteo != "Todos" else None
+    
+    with col3:
+        contienen = st.text_input("Contiene dígitos", placeholder="Ej: 1,7", key="hist_digitos")
+        contienen_param = contienen if contienen.strip() else None
+    
+    col4, col5 = st.columns(2)
+    with col4:
+        fecha_inicio = st.date_input("Desde", value=date.today() - timedelta(days=365), key="hist_fecha_ini")
+    with col5:
+        fecha_fin = st.date_input("Hasta", value=date.today(), key="hist_fecha_fin")
+    
+    buscar = st.button("🔍 Buscar", type="primary", use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+if buscar or "hist_resultados" in st.session_state:
+    if buscar:
+        with st.spinner("Buscando resultados..."):
+            params = {
+                "juego": juego_param,
+                "sorteo": sorteo_param,
+                "fecha_inicio": fecha_inicio.isoformat(),
+                "fecha_fin": fecha_fin.isoformat(),
+                "contienen_digitos": contienen_param,
+                "page": 1,
+                "size": 200,
+            }
+            params = {k: v for k, v in params.items() if v is not None}
+            result = api_get("/api/resultados/historicos", params)
+            st.session_state["hist_resultados"] = result
+    
+    result = st.session_state.get("hist_resultados")
+    
+    if result and result.get("data"):
+        data = result["data"]
+        total = result["total"]
+        
+        st.markdown(
+            f'<div class="card"><h3>📋 Resultados: {total} encontrados</h3>',
+            unsafe_allow_html=True,
+        )
+        
+        rows = []
+        for r in data:
+            nums = f"{r['n1']}-{r['n2']}-{r['n3']}"
+            if r.get("n4") is not None:
+                nums += f"-{r['n4']}"
+            sorteo_str = "Evening 🌙" if r["sorteo"] == "E" else "Midday ☀️"
+            rows.append({
+                "Fecha": r["fecha"],
+                "Juego": r["juego"],
+                "Sorteo": sorteo_str,
+                "Números": nums,
+            })
+        
+        df = pd.DataFrame(rows)
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Fecha": st.column_config.DateColumn("Fecha", format="YYYY-MM-DD"),
+                "Números": st.column_config.TextColumn("Números", width="medium"),
+            },
+        )
+        
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "📥 Exportar CSV",
+            csv,
+            f"resultados_{fecha_inicio}_{fecha_fin}.csv",
+            "text/csv",
+            key="download-csv",
+        )
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown('<div class="card"><h3>📊 Resumen Rápido</h3>', unsafe_allow_html=True)
+        col_s1, col_s2, col_s3 = st.columns(3)
+        
+        nums_list = []
+        for r in data:
+            nums_list.extend([r["n1"], r["n2"], r["n3"]])
+            if r.get("n4") is not None:
+                nums_list.append(r["n4"])
+        
+        from collections import Counter
+        counter = Counter(nums_list)
+        
+        with col_s1:
+            st.metric("Total sorteos", len(data))
+        with col_s2:
+            if counter:
+                top_num, top_count = counter.most_common(1)[0]
+                st.metric("Número más frecuente", top_num, f"{top_count} veces")
+        with col_s3:
+            if counter:
+                st.metric("Números distintos", len(counter))
+        
+        st.markdown('<h4 style="color:#94a3b8;">Distribución de números en este período</h4>', unsafe_allow_html=True)
+        
+        freq_cols = st.columns(10)
+        for i in range(10):
+            count = counter.get(i, 0)
+            max_count = max(counter.values()) if counter else 1
+            height = max(20, (count / max_count) * 100)
+            color = "#22c55e" if count > (len(data) * 0.15) else ("#fbbf24" if count > (len(data) * 0.1) else "#3b82f6")
+            with freq_cols[i]:
+                st.markdown(
+                    f'<div style="text-align:center;">'
+                    f'<div style="background:{color};height:{height}px;width:100%;border-radius:0.3rem;min-height:20px;"></div>'
+                    f'<div style="color:#f1f5f9;font-weight:bold;margin-top:0.3rem;">{i}</div>'
+                    f'<div style="color:#94a3b8;font-size:0.8rem;">{count}</div>'
+                    f'</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.info("No se encontraron resultados con los filtros seleccionados.")

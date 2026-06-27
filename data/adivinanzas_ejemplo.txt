@@ -1,0 +1,31 @@
+2026-01-01|Agua que no has de beber, déjala correr. ¿Qué número soy?|7
+2026-01-02|Blanca por dentro, verde por fuera. Si quieres que te lo diga, espera.|22
+2026-01-03|Oro parece, plata no es. ¿Qué es?|23
+2026-01-04|Cuanto más lavo, más sucia se pone. ¿Qué es?|7
+2026-01-05|Tengo agujas pero no coso, tengo números pero no leo. ¿Qué soy?|9
+2026-01-06|Vuelo sin alas, lloro sin ojos. ¿Qué soy?|7
+2026-01-07|En alto vive, en alto mora, nunca se moja aunque llueva a toda hora.|2
+2026-01-08|Blanco es, la gallina lo pone. ¿Qué es?|9
+2026-01-09|Cinco hermanos juntos están, cada uno con su oficio, y aunque juntos siempre están, nunca se miran ni se ven.|1
+2026-01-10|Largo, largo como un camino, y al final siempre hay un destino.|8
+2026-01-11|Tengo un ojo y no soy aguja, siempre alumbro en la noche oscura.|2
+2026-01-12|Cama redonda, sin almohada, sin colchón, pero cuando llega la noche, me da buena sensación.|2
+2026-01-13|Verde como el campo, campo no es; blanca como la nieve, nieve no es; dulce como la miel, miel no es.|39
+2026-01-14|Tengo cuello pero no cabeza, tengo cuerpo pero no tengo pies. ¿Qué soy?|44
+2026-01-15|Más de cien mujeres caben en mi interior, mas si entra una sola, no caben las demás.|88
+2026-01-16|Tengo patas pero no camino, tengo respaldo pero no soy silla.|41
+2026-01-17|Todos me pisan pero yo nunca me quejo, a veces me mojo pero siempre estoy seco.|35
+2026-01-18|Tengo hojas pero no soy árbol, tengo letras pero no sé leer.|19
+2026-01-19|No tengo boca y siempre hablo, no tengo pies y siempre voy, no tengo alas y siempre vuelo.|8
+2026-01-20|Una señora muy elegante, siempre va al baile pero no tiene amante.|82
+2026-01-21|En él vivo, en él muero, y sin él no soy nada.|1
+2026-01-22|Treinta caballos blancos en una colina roja, todos muerden pero no se quejan.|5
+2026-01-23|Cuando pica, no duele; cuando duele, ya no pica. ¿Qué es?|30
+2026-01-24|Me entierran vivo y salgo cantando. ¿Qué soy?|17
+2026-01-25|Ando sin pies, hablo sin boca, si me dejan suelto, salto y toco.|21
+2026-01-26|Cuanto más lejos, más cerca de ti. ¿Qué es?|46
+2026-01-27|Todos me buscan cuando están cansados, pero cuando llegan, me dejan olvidado.|10
+2026-01-28|Blanco fue mi nacimiento, verde fue mi juventud, rojo fue mi matrimonio, negro es mi ataúd.|39
+2026-01-29|Tengo cinco dedos pero no soy mano, y si me abres, guardo tu piano.|19
+2026-01-30|Salgo del agua y al agua voy, pero en el agua siempre estoy.|7
+2026-01-31|Una cajita chiquita, blanca como la sal, todos la saben abrir pero nadie la sabe cerrar.|19
