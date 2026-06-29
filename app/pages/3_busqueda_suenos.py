@@ -26,15 +26,15 @@ st.markdown('<p style="color:#94a3b8;text-align:center;">Describe tu sueño y de
 @st.cache_data(ttl=60)
 def api_get(path, params=None):
     try:
-        r = httpx.get(f"{API_URL}{path}", params=params, timeout=10)
+        r = httpx.get(f"{API_URL}{path}", params=params, timeout=30)
         r.raise_for_status()
         return r.json()
-    except Exception as e:
+    except:
         return None
 
 def api_post(path, json_data=None):
     try:
-        r = httpx.post(f"{API_URL}{path}", json=json_data, timeout=15)
+        r = httpx.post(f"{API_URL}{path}", json=json_data, timeout=30)
         r.raise_for_status()
         return r.json()
     except Exception as e:
@@ -144,14 +144,13 @@ with st.container():
     )
     
     ref_data = [
-        ("0", "Caballo", "8", "Viaje"),
-        ("1", "Sol/Amor", "9", "Gallo"),
-        ("2", "Luna/Casa", "10", "Casa"),
-        ("3", "Fuego", "15", "Perro"),
-        ("4", "Muerto/Muerte", "21", "Río"),
-        ("5", "Dinero", "46", "Sueño"),
-        ("6", "Tristeza", "57", "Ángel"),
-        ("7", "Agua/Lluvia", "73", "Serpiente"),
+        ("1", "Caballo"), ("8", "Viaje"),
+        ("2", "Mariposa"), ("9", "Elefante"),
+        ("3", "Marinero"), ("10", "Pescado Grande"),
+        ("4", "Gato Boca"), ("15", "Perro"),
+        ("5", "Monja"), ("21", "Maja"),
+        ("6", "Jicotea"), ("46", "Guagua"),
+        ("7", "Caracol"), ("73", "Serpiente"),
     ]
     
     ref_html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">'

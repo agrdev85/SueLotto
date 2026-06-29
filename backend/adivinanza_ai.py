@@ -5,35 +5,31 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
-PROMPT_TEMPLATE = """Eres un experto en la Charada Cubana y la interpretación de adivinanzas para la lotería.
+PROMPT_TEMPLATE = """Eres un experto en la Charada Cubana (números 1-100) y la interpretación de adivinanzas.
 
 Tu tarea es analizar la siguiente adivinanza y la interpretación que el usuario ha dado,
-y sugerir números de lotería (0-9) que podrían estar relacionados.
+y sugerir números de la charada (1-100) que podrían estar relacionados.
 
-Contexto cultural cubano:
-- "agua" → 7
-- "fuego" → 3
-- "gallo" → 9
-- "muerto" → 4
-- "dinero" → 5
-- "amor" → 1
-- "viaje" → 8
-- "casa" → 2
-- "tristeza" → 6
-- "suerte" → 0
+Usa la tabla charada como referencia: cada número 1-100 tiene significados asociados.
+Por ejemplo:
+- 1 = caballo
+- 2 = mariposa
+- 7 = caracol, agua
+- 21 = maja
+- 100 = inodoro
 
 ADIVINANZA: {adivinanza}
 
 INTERPRETACIÓN DEL USUARIO: {interpretacion}
 
 Por favor, proporciona:
-1. Una lista de 3-5 números sugeridos (0-9) ordenados por relevancia
+1. Una lista de 3-5 números sugeridos (1-100) ordenados por relevancia
 2. Una breve explicación de por qué cada número es relevante
 
 Responde en formato JSON:
 {{
   "sugerencias": [
-    {{"numero": 7, "razon": "El agua en la adivinanza sugiere el número 7"}},
+    {{"numero": 1, "razon": "El caballo aparece en la adivinanza"}},
     ...
   ],
   "razonamiento": "Texto explicando el análisis completo"
@@ -86,7 +82,9 @@ def _fallback_analysis(adivinanza: str, interpretacion: str) -> dict:
         "viaje": 8, "camino": 8, "vuelo": 8, "carro": 8,
         "casa": 2, "hogar": 2, "familia": 2, "madre": 2,
         "tristeza": 6, "llanto": 6, "lagrima": 6, "dolor": 6,
-        "suerte": 0, "ganar": 0, "loteria": 0, "premio": 0,
+        "caballo": 1, "jinete": 1, "montar": 1,
+        "mariposa": 2, "oruga": 2,
+        "caracol": 7, "concha": 7,
     }
 
     sugerencias = []
@@ -100,8 +98,8 @@ def _fallback_analysis(adivinanza: str, interpretacion: str) -> dict:
     sugerencias = sugerencias[:5]
     if not sugerencias:
         sugerencias = [
-            {"numero": 7, "razon": "Número de la suerte por defecto."},
-            {"numero": 3, "razon": "Número de la suerte por defecto."},
+            {"numero": 1, "razon": "Número de la suerte por defecto (Caballo)."},
+            {"numero": 7, "razon": "Número de la suerte por defecto (Agua/Caracol)."},
         ]
 
     return {

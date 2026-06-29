@@ -51,7 +51,7 @@ def actualizar_juego(juego: str):
     print(f"  Extraídos {len(resultados)} resultados del PDF")
     
     if ultima_fecha:
-        nuevos = [r for r in resultados if r["fecha"] > ultima_fecha.isoformat()]
+        nuevos = [r for r in resultados if r["fecha"] > ultima_fecha]
     else:
         nuevos = resultados
     
@@ -84,7 +84,7 @@ def main():
     for juego in ["Pick 3", "Pick 4"]:
         total += actualizar_juego(juego)
     
-    print(f"\n✅ Actualización completa. Total nuevos: {total}")
+    print(f"\nOK - Actualizacion completa. Total nuevos: {total}")
 
 
 if __name__ == "__main__":

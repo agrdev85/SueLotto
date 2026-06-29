@@ -19,6 +19,7 @@ from backend.lottery_analyzer import generar_predicciones, calcular_numeros_cali
 from backend.charada_engine import buscar_en_sueno
 from backend.adivinanza_ai import analizar_adivinanza
 from backend.matrix_engine import obtener_numeros_alrededor, procesar_secuencia, comparar_y_reducir
+from backend.auto_updater import start as start_auto_updater
 
 app = FastAPI(title="SueñaLotto API", version="1.0.0")
 
@@ -34,11 +35,30 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     init_db()
+    start_auto_updater()
 
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ─── Auto-Update Status ────────────────────────────────────────────
+
+
+from backend.auto_updater import get_status as get_auto_update_status
+
+
+@app.post("/api/admin/update")
+def api_trigger_update():
+    from backend.auto_updater import run_update
+    run_update()
+    return {"status": "ok", "detail": "Actualización ejecutada"}
+
+
+@app.get("/api/admin/update-status")
+def api_update_status():
+    return get_auto_update_status()
 
 
 @app.get("/api/resultados/ultimos")
@@ -191,7 +211,7 @@ def api_posibles_salir(
 
 @app.get("/api/charada/enriquecida")
 def api_charada_enriquecida(
-    numero: Optional[int] = Query(None, ge=0, le=99),
+    numero: Optional[int] = Query(None, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     return get_charada_enriquecida(db, numero)

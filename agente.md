@@ -1,5 +1,10 @@
 # PROYECTO: SueñaLotto - App Integral de Lotería con Charada y Adivinanzas Cubanas
 
+## IMPORTANTE PARA AGENTES
+**SIEMPRE leer primero el archivo mas reciente de `history/` para conocer el estado actual del proyecto.**
+Alli encontraras el contexto de la sesion anterior, cambios realizados y decisiones tomadas.
+Usa `scripts/session_log.py` para registrar tus pasos.
+
 ## OBJETIVO PRINCIPAL
 Crear una aplicación web completa para el análisis de la lotería Florida (Pick 3 y Pick 4), que integre:
 1. Datos históricos y actualizados en tiempo real.

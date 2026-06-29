@@ -1,3 +1,5 @@
+import json
+import re
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, and_, or_, cast, String
 from typing import Optional
@@ -135,12 +137,17 @@ def get_atrasados(db: Session, juego: str, sorteo: Optional[str] = None):
 
 
 def search_charada(db: Session, texto: str):
-    import re
     texto_limpio = re.sub(r"[^\w\sáéíóúñ]", " ", texto.lower())
     palabras = texto_limpio.split()
 
     all_entries = db.query(Charada).all()
-    significado_map = {c.significado.lower(): c for c in all_entries}
+    significado_map = {}
+    for c in all_entries:
+        sigs = json.loads(c.significados)
+        for sig in sigs:
+            sig_lower = sig.lower()
+            if sig_lower not in significado_map:
+                significado_map[sig_lower] = c
 
     resultados = []
     for i, palabra in enumerate(palabras):
@@ -149,7 +156,7 @@ def search_charada(db: Session, texto: str):
             resultados.append({
                 "palabra": palabra,
                 "numero": c.numero,
-                "significado": c.significado,
+                "significado": json.loads(c.significados)[0],
                 "posicion": i,
             })
     return resultados
@@ -193,20 +200,18 @@ def get_posibles_salir(db: Session, fecha: Optional[date] = None, sorteo: Option
 
 
 def get_charada_enriquecida(db: Session, numero: Optional[int] = None):
-    from sqlalchemy import text
     query = db.query(Charada)
     if numero is not None:
         query = query.filter(Charada.numero == numero)
     entries = query.order_by(Charada.numero).all()
     result = []
     for e in entries:
-        palabras = [w for w in e.significado.lower().split() if w not in {
-            "el", "la", "los", "las", "un", "una", "de", "del", "y", "en", "con"
-        }]
+        significados = json.loads(e.significados) if e.significados else []
+        palabras_clave = json.loads(e.palabras_clave) if e.palabras_clave else []
         result.append({
             "numero": e.numero,
-            "significados": [e.significado],
+            "significados": significados,
             "categoria": e.categoria or "general",
-            "palabras_clave": palabras,
+            "palabras_clave": palabras_clave,
         })
     return result

@@ -24,8 +24,9 @@ class Charada(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     numero = Column(Integer, nullable=False, unique=True, index=True)
-    significado = Column(String(200), nullable=False)
+    significados = Column(Text, nullable=False)
     categoria = Column(String(50), nullable=True)
+    palabras_clave = Column(Text, nullable=True)
 
 
 class Adivinanza(Base):

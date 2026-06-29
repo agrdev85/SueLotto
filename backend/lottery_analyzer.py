@@ -66,15 +66,21 @@ def _build_features(df, pos: str):
     return pd.DataFrame(features), np.array(targets)
 
 
-def generar_predicciones(db: Session, juego: str, sorteo: str = None):
+def generar_predicciones(db: Session, juego: str, sorteo: str = None, use_llm: bool = True):
     min_count = db.query(Resultado).filter(
         Resultado.juego == juego,
         Resultado.fecha >= date.today() - timedelta(days=365),
     ).count()
 
+    frecuencias = calcular_frecuencias(db, juego, sorteo, 90)
+    atrasados = calcular_atrasados(db, juego, sorteo)
+
+    if use_llm and min_count >= 20:
+        llm_preds = _generar_predicciones_llm(db, juego, sorteo, frecuencias, atrasados)
+        if llm_preds:
+            return llm_preds
+
     if min_count < 60:
-        frecuencias = calcular_frecuencias(db, juego, sorteo, 90)
-        atrasados = calcular_atrasados(db, juego, sorteo)
         return _fallback_prediction(frecuencias, atrasados)
 
     import pandas as pd
@@ -88,7 +94,7 @@ def generar_predicciones(db: Session, juego: str, sorteo: str = None):
         if len(X) < 10:
             continue
 
-        model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
+        model = RandomForestClassifier(n_estimators=50, max_depth=8, random_state=42, n_jobs=-1)
         model.fit(X, y)
 
         ultimo = df.iloc[-1]
@@ -113,8 +119,6 @@ def generar_predicciones(db: Session, juego: str, sorteo: str = None):
                 predicciones_totales.append({"numero": num, "probabilidad": round(float(prob), 4)})
 
     if not predicciones_totales:
-        frecuencias = calcular_frecuencias(db, juego, sorteo, 90)
-        atrasados = calcular_atrasados(db, juego, sorteo)
         return _fallback_prediction(frecuencias, atrasados)
 
     df_pred = pd.DataFrame(predicciones_totales)
@@ -122,6 +126,31 @@ def generar_predicciones(db: Session, juego: str, sorteo: str = None):
     df_pred = df_pred.sort_values("probabilidad", ascending=False)
 
     return df_pred.to_dict("records")
+
+
+def _generar_predicciones_llm(db: Session, juego: str, sorteo: str, frecuencias: list, atrasados: list) -> list:
+    import pandas as pd
+    from backend.llm_client import build_prediction_prompt, consultar_json, parse_predicciones_llm
+
+    historicos = get_resultados_df(db, juego, sorteo, dias=90)
+    if len(historicos) < 10:
+        return []
+
+    historicos_dict = []
+    for _, row in historicos.tail(60).iterrows():
+        h = {
+            "fecha": row["fecha"].isoformat() if hasattr(row["fecha"], "isoformat") else str(row["fecha"]),
+            "n1": int(row["n1"]),
+            "n2": int(row["n2"]),
+            "n3": int(row["n3"]),
+        }
+        if "n4" in row.index and pd.notna(row["n4"]):
+            h["n4"] = int(row["n4"])
+        historicos_dict.append(h)
+
+    prompt = build_prediction_prompt(juego, historicos_dict, frecuencias, atrasados)
+    response = consultar_json(prompt)
+    return parse_predicciones_llm(response)
 
 
 def _fallback_prediction(frecuencias: list, atrasados: list):

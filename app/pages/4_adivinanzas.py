@@ -27,7 +27,7 @@ st.markdown('<p style="color:#94a3b8;text-align:center;">Interpreta la adivinanz
 @st.cache_data(ttl=300)
 def api_get(path, params=None):
     try:
-        r = httpx.get(f"{API_URL}{path}", params=params, timeout=10)
+        r = httpx.get(f"{API_URL}{path}", params=params, timeout=30)
         r.raise_for_status()
         return r.json()
     except:

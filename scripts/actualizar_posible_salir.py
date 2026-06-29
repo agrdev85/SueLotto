@@ -15,7 +15,7 @@ from backend.crud import bulk_insert_posibles_salir
 
 
 def actualizar(db: Session, juego: str):
-    print(f"🔄 Actualizando {juego}...")
+    print(f"[INICIO] Actualizando {juego}...")
     for sorteo in ["E", "M"]:
         try:
             resultado = obtener_posibles_salir(db, juego, date.today(), sorteo, use_ml=True)
@@ -26,11 +26,11 @@ def actualizar(db: Session, juego: str):
                     "numeros": ",".join(str(n) for n in resultado["numeros"]),
                 }
                 bulk_insert_posibles_salir(db, [registro])
-                print(f"  ✅ {juego} {sorteo}: {len(resultado['numeros'])} números guardados")
+                print(f"  [OK] {juego} {sorteo}: {len(resultado['numeros'])} numeros guardados")
             else:
-                print(f"  ⚠️ {juego} {sorteo}: sin resultados")
+                print(f"  [---] {juego} {sorteo}: sin resultados")
         except Exception as e:
-            print(f"  ❌ {juego} {sorteo}: {e}")
+            print(f"  [ERROR] {juego} {sorteo}: {e}")
 
     db.commit()
 
@@ -39,12 +39,12 @@ def main():
     init_db()
     db = SessionLocal()
     try:
-        print(f"🚀 Actualizando posible_salir para {date.today()}...")
+        print(f"Actualizando posible_salir para {date.today()}...")
         actualizar(db, "Pick 3")
         actualizar(db, "Pick 4")
-        print("🎉 Actualización completada!")
+        print("[OK] Actualizacion completada")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"[ERROR] {e}")
     finally:
         db.close()
 

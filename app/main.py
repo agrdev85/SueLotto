@@ -43,10 +43,10 @@ st.markdown('<div class="main-header"><h1>🎱 SueñaLotto</h1><p>Análisis inte
 @st.cache_data(ttl=300)
 def api_get(path: str, params: dict = None):
     try:
-        r = httpx.get(f"{API_URL}{path}", params=params, timeout=10)
+        r = httpx.get(f"{API_URL}{path}", params=params, timeout=30)
         r.raise_for_status()
         return r.json()
-    except Exception:
+    except:
         return None
 
 

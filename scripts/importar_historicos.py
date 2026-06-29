@@ -9,9 +9,12 @@ Parseo con pdfplumber + regex, carga masiva a la BD.
 import sys
 import os
 import re
+import ssl
 import requests
 import pdfplumber
 from datetime import datetime, date
+from urllib3.poolmanager import PoolManager
+from requests.adapters import HTTPAdapter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -41,12 +44,34 @@ PATTERN_PICK4 = re.compile(
 )
 
 
+class _LegacySSLAdapter(HTTPAdapter):
+    """Adapter that uses a more permissive SSL context for legacy servers."""
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
+        kwargs["ssl_context"] = ctx
+        return super().init_poolmanager(*args, **kwargs)
+
+
+_session = None
+
+
+def _get_session():
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.mount("https://", _LegacySSLAdapter())
+    return _session
+
+
 def descargar_pdf(url: str, path: str) -> bool:
     """Descarga el PDF y lo guarda sobrescribiendo el anterior.
     Si falla la descarga, usa el archivo local existente si hay uno."""
     print(f"  Descargando {url}...")
     try:
-        resp = requests.get(url, timeout=60, stream=True)
+        resp = _get_session().get(url, timeout=60, stream=True)
         resp.raise_for_status()
         with open(path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=8192):
@@ -165,7 +190,7 @@ def main():
     for juego in ["Pick 3", "Pick 4"]:
         total += importar_juego(juego)
     
-    print(f"\n✅ Importación completa. Total: {total} registros")
+    print(f"\nOK - Importacion completa. Total: {total} registros")
 
 
 if __name__ == "__main__":

@@ -1,100 +1,69 @@
+import json
+import os
+
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+
 MATRIZ_NUEVA = [
-    [ 1,  2,  3,  4,  5,  6,  7,  8,  9, 10],
-    [11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
-    [21, 22, 23, 24, 25, 26, 27, 28, 29, 30],
-    [31, 32, 33, 34, 35, 36, 37, 38, 39, 40],
-    [41, 42, 43, 44, 45, 46, 47, 48, 49, 50],
-    [51, 52, 53, 54, 55, 56, 57, 58, 59, 60],
-    [61, 62, 63, 64, 65, 66, 67, 68, 69, 70],
-    [71, 72, 73, 74, 75, 76, 77, 78, 79, 80],
-    [81, 82, 83, 84, 85, 86, 87, 88, 89, 90],
-    [91, 92, 93, 94, 95, 96, 97, 98, 99,100],
+    [1, 100, 2, 99, 3, 98, 4, 97, 5, 96],
+    [6, 95, 7, 94, 8, 93, 9, 92, 10, 91],
+    [11, 90, 12, 89, 13, 88, 14, 87, 15, 86],
+    [16, 85, 17, 84, 18, 83, 19, 82, 20, 81],
+    [21, 80, 22, 79, 23, 78, 24, 77, 25, 76],
+    [26, 75, 27, 74, 28, 73, 29, 72, 30, 71],
+    [31, 70, 32, 69, 33, 68, 34, 67, 35, 66],
+    [36, 65, 37, 64, 38, 63, 39, 62, 40, 61],
+    [41, 60, 42, 59, 43, 58, 44, 57, 45, 56],
+    [46, 55, 47, 54, 48, 53, 49, 52, 50, 51],
 ]
 
 MATRIZ_VIEJA = [
-    [ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10],
-    [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
-    [22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32],
-    [33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43],
-    [44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54],
-    [55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65],
-    [66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76],
-    [77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87],
-    [88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98],
-    [99,100,  0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0],
+    [14, 46, 69, 1, 0, 62, 89, 28, 0, 57, 97],
+    [66, 37, 99, 13, 79, 78, 0, 17, 90, 70, 0],
+    [33, 60, 12, 98, 61, 0, 71, 80, 10, 0, 27],
+    [100, 21, 2, 32, 91, 72, 0, 77, 96, 54, 81],
+    [47, 82, 53, 31, 56, 0, 9, 0, 35, 92, 4],
+    [25, 58, 0, 36, 87, 49, 83, 16, 0, 59, 0],
+    [74, 0, 40, 0, 64, 11, 3, 45, 41, 84, 75],
+    [0, 76, 24, 68, 93, 20, 73, 15, 85, 8, 0],
+    [19, 7, 48, 50, 38, 0, 30, 51, 63, 0, 39],
+    [29, 42, 0, 34, 52, 43, 94, 0, 5, 55, 86],
+    [95, 65, 44, 88, 6, 22, 67, 0, 18, 23, 26],
 ]
 
-DIRECCIONES = [
-    (-1,  0),  # N
-    (-1,  1),  # NE
-    ( 0,  1),  # E
-    ( 1,  1),  # SE
-    ( 1,  0),  # S
-    ( 1, -1),  # SW
-    ( 0, -1),  # W
-    (-1, -1),  # NW
-]
+with open(os.path.join(DATA_DIR, "arrastrados_tn.json"), "r") as f:
+    _ARRASTRADOS_TN = {int(k): v for k, v in json.load(f).items()}
+
+with open(os.path.join(DATA_DIR, "arrastrados_tv.json"), "r") as f:
+    _ARRASTRADOS_TV = {int(k): v for k, v in json.load(f).items()}
 
 MATRICES = {
     "nueva": MATRIZ_NUEVA,
     "vieja": MATRIZ_VIEJA,
 }
 
-
-def _obtener_matriz(tipo_matriz: str) -> list[list[int]]:
-    matriz = MATRICES.get(tipo_matriz)
-    if matriz is None:
-        raise ValueError(f"Tipo de matriz inválido: {tipo_matriz}. Usa 'nueva' o 'vieja'.")
-    return matriz
-
-
-def _encontrar_posicion(matriz: list[list[int]], numero: int) -> tuple[int, int]:
-    for fila in range(len(matriz)):
-        for col in range(len(matriz[0])):
-            if matriz[fila][col] == numero:
-                return fila, col
-    raise ValueError(f"Número {numero} no encontrado en la matriz")
-
-
-def _recorrer_direccion(matriz: list[list[int]], fila: int, col: int, df: int, dc: int) -> list[int]:
-    filas, cols = len(matriz), len(matriz[0])
-    numeros = []
-    f, c = fila + df, col + dc
-    while 0 <= f < filas and 0 <= c < cols:
-        valor = matriz[f][c]
-        if valor == 0:
-            break
-        numeros.append(valor)
-        f += df
-        c += dc
-    return numeros
+_ALREDEDOR = {
+    "nueva": _ARRASTRADOS_TN,
+    "vieja": _ARRASTRADOS_TV,
+}
 
 
 def obtener_numeros_alrededor(numero: int, tipo_matriz: str = "nueva") -> list[int]:
-    matriz = _obtener_matriz(tipo_matriz)
-    fila, col = _encontrar_posicion(matriz, numero)
-
-    vistos = {numero}
-    resultado = [numero]
-
-    for df, dc in DIRECCIONES:
-        for n in _recorrer_direccion(matriz, fila, col, df, dc):
-            if n not in vistos:
-                vistos.add(n)
-                resultado.append(n)
-
-    return resultado
+    if not (1 <= numero <= 100):
+        raise ValueError(f"Número {numero} fuera de rango (1-100)")
+    arrastrados = _ALREDEDOR.get(tipo_matriz)
+    if arrastrados is None:
+        raise ValueError(f"Tipo de matriz inválido: {tipo_matriz}")
+    if numero not in arrastrados:
+        raise ValueError(f"Número {numero} no tiene datos de arrastrados para matriz {tipo_matriz}")
+    return list(arrastrados[numero])
 
 
 def procesar_secuencia(secuencia: list[int], tipo_matriz: str = "nueva") -> list[int]:
     if not 1 <= len(secuencia) <= 3:
         raise ValueError("La secuencia debe tener entre 1 y 3 números")
     for n in secuencia:
-        if tipo_matriz == "nueva" and not (1 <= n <= 100):
-            raise ValueError(f"Número {n} fuera de rango para matriz nueva (1-100)")
-        if tipo_matriz == "vieja" and not (0 <= n <= 100):
-            raise ValueError(f"Número {n} fuera de rango para matriz vieja (0-100)")
+        if not (1 <= n <= 100):
+            raise ValueError(f"Número {n} fuera de rango (1-100)")
 
     vistos = set()
     resultado = []
