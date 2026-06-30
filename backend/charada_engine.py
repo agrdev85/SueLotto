@@ -187,33 +187,109 @@ def poblar_charada_db(db: Session, path: str = "data/charada.json"):
     return count
 
 
+def _normalize(word: str) -> str:
+    """Remove accents and lowercase."""
+    accents = str.maketrans("áéíóúñÁÉÍÓÚÑ", "aeiounAEIOUN")
+    return word.lower().translate(accents)
+
+
+def _build_maps(all_entries):
+    """
+    Build lookup maps with priority:
+      1. primary_exact: first significado (primary) exact phrase match
+      2. exact: any significado exact phrase match
+      3. primary_word: word from primary significado
+      4. word: any word from any significado
+    """
+    primary_exact = {}
+    exact = {}
+    primary_word = {}
+    word_map = {}
+
+    for c in all_entries:
+        significados = json.loads(c.significados)
+        for idx, sig in enumerate(significados):
+            sig_norm = _normalize(sig)
+            is_primary = idx == 0
+
+            if sig_norm not in exact:
+                exact[sig_norm] = c
+            if is_primary and sig_norm not in primary_exact:
+                primary_exact[sig_norm] = c
+
+            for word in sig_norm.split():
+                w = word.strip()
+                if w and w not in STOPWORDS:
+                    if w not in word_map:
+                        word_map[w] = (c, sig_norm, is_primary)
+                    if is_primary and w not in primary_word:
+                        primary_word[w] = (c, sig_norm)
+
+    return {
+        "primary_exact": primary_exact,
+        "exact": exact,
+        "primary_word": primary_word,
+        "word": word_map,
+    }
+
+
 def buscar_en_sueno(db: Session, texto: str) -> list[dict]:
-    texto_limpio = re.sub(r"[^\w\sáéíóúñ]", " ", texto.lower())
+    texto_limpio = re.sub(r"[^\w\sáéíóúñÁÉÍÓÚÑ]", " ", texto.lower())
     palabras = texto_limpio.split()
 
     all_entries = db.query(Charada).all()
-
-    word_to_entry = {}
-    for c in all_entries:
-        significados = json.loads(c.significados)
-        for sig in significados:
-            for word in sig.lower().split():
-                if word not in STOPWORDS and word not in word_to_entry:
-                    word_to_entry[word] = c
+    maps = _build_maps(all_entries)
 
     resultados = []
-    palabras_vistas = set()
-    for i, palabra in enumerate(palabras):
-        if palabra in word_to_entry and palabra not in palabras_vistas:
-            c = word_to_entry[palabra]
+    seen_numbers = set()
+    i = 0
+    while i < len(palabras):
+        palabra = palabras[i]
+        palabra_norm = _normalize(palabra)
+        if not palabra_norm or palabra_norm in STOPWORDS:
+            i += 1
+            continue
+
+        entry = None
+        matched_sig = None
+        skip = 1
+
+        # Priority 1: multi-word exact phrase match (try longest first)
+        for end in range(min(i + 4, len(palabras) - 1), i, -1):
+            phrase = " ".join(_normalize(palabras[j]) for j in range(i, end + 1))
+            if phrase in maps["primary_exact"]:
+                entry = maps["primary_exact"][phrase]
+                matched_sig = phrase
+                skip = end - i + 1
+                break
+            if phrase in maps["exact"]:
+                entry = maps["exact"][phrase]
+                matched_sig = phrase
+                skip = end - i + 1
+                break
+
+        if not entry and palabra_norm in maps["primary_exact"]:
+            entry = maps["primary_exact"][palabra_norm]
+            matched_sig = palabra_norm
+        elif not entry and palabra_norm in maps["exact"]:
+            entry = maps["exact"][palabra_norm]
+            matched_sig = palabra_norm
+        elif not entry and palabra_norm in maps["primary_word"]:
+            entry, matched_sig = maps["primary_word"][palabra_norm]
+        elif not entry and palabra_norm in maps["word"]:
+            entry, matched_sig, _ = maps["word"][palabra_norm]
+
+        if entry and entry.numero not in seen_numbers:
+            seen_numbers.add(entry.numero)
             resultados.append({
-                "palabra": palabra,
-                "numero": c.numero,
-                "significado": json.loads(c.significados)[0],
-                "categoria": c.categoria,
+                "palabra": palabras[i],
+                "numero": entry.numero,
+                "significado": json.loads(entry.significados)[0],
+                "categoria": entry.categoria,
                 "posicion": i,
             })
-            palabras_vistas.add(palabra)
+
+        i += skip
 
     return resultados
 

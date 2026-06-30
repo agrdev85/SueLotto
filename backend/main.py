@@ -34,8 +34,11 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
-    init_db()
-    start_auto_updater()
+    try:
+        init_db()
+        start_auto_updater()
+    except Exception as e:
+        print(f"[WARN] Startup error (non-fatal): {e}")
 
 
 @app.get("/health")

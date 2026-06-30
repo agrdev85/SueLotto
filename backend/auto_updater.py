@@ -120,7 +120,6 @@ def start():
             _log("Scheduler iniciado — actualización inmediata + diaria a las 06:30")
         except Exception as e:
             _log(f"Error iniciando scheduler: {e}")
-            raise
 
 
 def get_status() -> dict:

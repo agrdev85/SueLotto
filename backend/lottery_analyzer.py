@@ -83,8 +83,11 @@ def generar_predicciones(db: Session, juego: str, sorteo: str = None, use_llm: b
     if min_count < 60:
         return _fallback_prediction(frecuencias, atrasados)
 
-    import pandas as pd
-    from sklearn.ensemble import RandomForestClassifier
+    try:
+        import pandas as pd
+        from sklearn.ensemble import RandomForestClassifier
+    except ImportError:
+        return _fallback_prediction(frecuencias, atrasados)
 
     df = get_resultados_df(db, juego, sorteo, dias=365)
 

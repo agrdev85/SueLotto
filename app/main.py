@@ -11,7 +11,7 @@ load_dotenv()
 API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(
-    page_title="SueñaLotto",
+    page_title="Sorteos",
     page_icon="🎱",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -37,7 +37,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header"><h1>🎱 SueñaLotto</h1><p>Análisis inteligente de la Florida Lottery • Pick 3 & Pick 4 • Charada Cubana</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>🎱 Sorteos</h1><p>Análisis inteligente de la Florida Lottery • Pick 3 & Pick 4 • Charada Cubana</p></div>', unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=300)

@@ -71,18 +71,18 @@ def descargar_pdf(url: str, path: str) -> bool:
     Si falla la descarga, usa el archivo local existente si hay uno."""
     print(f"  Descargando {url}...")
     try:
-        resp = _get_session().get(url, timeout=60, stream=True)
+        resp = _get_session().get(url, timeout=30, stream=True)
         resp.raise_for_status()
         with open(path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=8192):
                 f.write(chunk)
         print(f"  Guardado en {path} ({os.path.getsize(path)} bytes)")
         return True
-    except Exception as e:
-        print(f"  ERROR descargando {url}: {e}")
+    except Exception:
         if os.path.exists(path):
-            print(f"  Usando archivo local existente: {path}")
+            print(f"  Sin conexión — usando archivo local: {path}")
             return True
+        print(f"  [ERROR] No se pudo descargar {url} y no hay archivo local")
         return False
 
 
