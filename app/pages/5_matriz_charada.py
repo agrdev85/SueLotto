@@ -9,6 +9,9 @@ load_dotenv()
 API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Matriz & Charada", page_icon="🔢", layout="wide")
+from app.auth_check import check_tier; _t = check_tier()
+if _t.get("tier") not in ("pro", "lifetime"):
+    st.stop()
 
 st.markdown("""
 <style>
@@ -322,11 +325,13 @@ with tabs[2]:
     st.markdown(f'<div class="card"><h3>📈 Comparar & Reducir</h3>', unsafe_allow_html=True)
 
     with st.expander("⚙️ Opciones de calientes y posibles", expanded=True):
-        col_game, col_sorteo = st.columns(2)
+        col_game, col_sorteo, col_lim = st.columns([1, 1, 1])
         with col_game:
             juego_cal = st.selectbox("Juego", ["Pick 3", "Pick 4"], key="juego_comp")
         with col_sorteo:
             sorteo_cal = st.selectbox("Sorteo", ["E", "M"], key="sorteo_comp")
+        with col_lim:
+            limite_top = st.slider("Top N del score", min_value=3, max_value=50, value=15, step=1, key="limite_score")
 
     if st.button("📊 Comparar y Reducir", type="primary", use_container_width=True):
         secuencia_comp = [n for n in [num1, num2, num3] if n >= 1]
@@ -343,6 +348,7 @@ with tabs[2]:
             "posibles": posibles,
             "juego": juego_cal,
             "sorteo": sorteo_cal,
+            "limite": limite_top,
         })
         if resp:
             m1, m2, m3, m4 = st.columns(4)
@@ -382,7 +388,7 @@ with tabs[2]:
 
                 scored = resp.get("discriminante_scored", [])
                 if scored:
-                    st.markdown('<h4 style="color:#fbbf24;margin-top:1rem;">🏆 Top Reducido por Score Estadístico</h4>', unsafe_allow_html=True)
+                    st.markdown(f'<h4 style="color:#fbbf24;margin-top:1rem;">🏆 Top {len(scored)} — Score Estadístico</h4>', unsafe_allow_html=True)
                     st.markdown(
                         '<p style="color:#94a3b8;font-size:0.85rem;">'
                         'Combinando frecuencia (90 días), atraso y probabilidad ML. '

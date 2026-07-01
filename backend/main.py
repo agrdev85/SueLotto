@@ -1,12 +1,15 @@
 import os
-from fastapi import FastAPI, Depends, Query, HTTPException, Body
+from fastapi import FastAPI, Depends, Query, HTTPException, Body, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from typing import Optional
-from datetime import date
+from datetime import date, datetime
 
 from backend.database import init_db, get_db
 from backend.schemas import MatrizRequest, SecuenciaRequest, CompararRequest
+from backend.auth import hash_password, verify_password, create_access_token, decode_token
+from backend.models import User, Bet, UserUsage
 from backend.crud import (
     get_ultimos_resultados,
     get_resultados_historicos,
@@ -184,7 +187,7 @@ def api_matriz_comparar(req: CompararRequest, db: Session = Depends(get_db)):
     try:
         resultado = comparar_y_reducir(
             req.secuencia, req.tipo_matriz, req.calientes, req.posibles,
-            db=db, juego=req.juego, sorteo=req.sorteo,
+            db=db, juego=req.juego, sorteo=req.sorteo, limite=req.limite,
         )
         return resultado
     except ValueError as e:
@@ -244,3 +247,215 @@ def api_charada_enriquecida(
     db: Session = Depends(get_db),
 ):
     return get_charada_enriquecida(db, numero)
+
+
+# ─── Auth Endpoints ────────────────────────────────────────────────
+
+def _get_user_from_token(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    if not authorization:
+        return None
+    try:
+        scheme, token = authorization.split()
+        if scheme.lower() != "bearer":
+            return None
+        payload = decode_token(token)
+        if payload is None:
+            return None
+        return db.query(User).filter(User.username == payload.get("sub")).first()
+    except Exception:
+        return None
+
+
+@app.post("/api/auth/register")
+def api_register(data: dict = Body(...), db: Session = Depends(get_db)):
+    username = data.get("username", "").strip()
+    email = data.get("email", "").strip()
+    password = data.get("password", "")
+
+    if not username or not email or not password:
+        raise HTTPException(400, "Todos los campos son requeridos")
+    if len(password) < 4:
+        raise HTTPException(400, "La contraseña debe tener al menos 4 caracteres")
+    if db.query(User).filter(User.username == username).first():
+        raise HTTPException(400, "El nombre de usuario ya existe")
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(400, "El email ya está registrado")
+
+    user = User(
+        username=username,
+        email=email,
+        password_hash=hash_password(password),
+        tier="free",
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    token = create_access_token({"sub": user.username})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "tier": user.tier,
+        },
+    }
+
+
+@app.post("/api/auth/login")
+def api_login(data: dict = Body(...), db: Session = Depends(get_db)):
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+
+    if not username or not password:
+        raise HTTPException(400, "Usuario y contraseña requeridos")
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user or not verify_password(password, user.password_hash):
+        raise HTTPException(401, "Usuario o contraseña incorrectos")
+
+    token = create_access_token({"sub": user.username})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "tier": user.tier,
+            "tier_expires": user.tier_expires.isoformat() if user.tier_expires else None,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+    }
+
+
+@app.get("/api/auth/profile")
+def api_profile(current_user: Optional[User] = Depends(_get_user_from_token)):
+    if not current_user:
+        raise HTTPException(401, "No autenticado")
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "tier": current_user.tier,
+        "tier_expires": current_user.tier_expires.isoformat() if current_user.tier_expires else None,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None,
+    }
+
+
+@app.get("/api/auth/tier")
+def api_check_tier(
+    current_user: Optional[User] = Depends(_get_user_from_token),
+    db: Session = Depends(get_db),
+):
+    tier = current_user.tier if current_user else "free"
+    can_use_historica = tier in ("trial", "pro", "lifetime")
+    can_use_charada = tier in ("trial", "pro", "lifetime")
+    can_use_suenos = tier in ("pro", "lifetime")
+    can_use_adivinanzas = tier in ("pro", "lifetime")
+    can_use_matriz = tier in ("pro", "lifetime")
+
+    charada_today = 0
+    charada_limit = 999
+    if tier == "trial":
+        charada_limit = 3
+        if current_user:
+            usage = db.query(UserUsage).filter(
+                UserUsage.user_id == current_user.id,
+                UserUsage.fecha == date.today(),
+            ).first()
+            if usage:
+                charada_today = usage.charada_count
+    elif tier == "free":
+        charada_limit = 0
+
+    return {
+        "tier": tier,
+        "can_use_historica": can_use_historica,
+        "can_use_charada": can_use_charada,
+        "can_use_suenos": can_use_suenos,
+        "can_use_adivinanzas": can_use_adivinanzas,
+        "can_use_matriz": can_use_matriz,
+        "charada_today": charada_today,
+        "charada_limit": charada_limit,
+    }
+
+
+@app.post("/api/usage/charada")
+def api_increment_charada_usage(current_user: Optional[User] = Depends(_get_user_from_token), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(401, "No autenticado")
+    usage = db.query(UserUsage).filter(
+        UserUsage.user_id == current_user.id,
+        UserUsage.fecha == date.today(),
+    ).first()
+    if not usage:
+        usage = UserUsage(user_id=current_user.id, fecha=date.today(), charada_count=1)
+        db.add(usage)
+    else:
+        usage.charada_count += 1
+    db.commit()
+    return {"charada_today": usage.charada_count}
+
+
+# ─── Bet Endpoints ─────────────────────────────────────────────────
+
+@app.get("/api/bets")
+def api_get_bets(current_user: Optional[User] = Depends(_get_user_from_token), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(401, "No autenticado")
+    bets = db.query(Bet).filter(Bet.user_id == current_user.id).order_by(Bet.fecha.desc()).all()
+    return [
+        {
+            "id": b.id,
+            "fecha": b.fecha.isoformat(),
+            "turno": b.turno,
+            "juego": b.juego,
+            "numeros": b.numeros,
+            "fijo": b.fijo,
+            "corrido": b.corrido,
+            "parle": b.parle,
+            "candado": b.candado,
+            "precio": b.precio,
+            "descripcion": b.descripcion,
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+        }
+        for b in bets
+    ]
+
+
+@app.post("/api/bets")
+def api_create_bet(data: dict = Body(...), current_user: Optional[User] = Depends(_get_user_from_token), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(401, "No autenticado")
+    bet = Bet(
+        user_id=current_user.id,
+        fecha=datetime.strptime(data["fecha"], "%Y-%m-%d").date(),
+        turno=data.get("turno"),
+        juego=data["juego"],
+        numeros=data["numeros"],
+        fijo=data.get("fijo"),
+        corrido=data.get("corrido"),
+        parle=data.get("parle"),
+        candado=data.get("candado"),
+        precio=data.get("precio"),
+        descripcion=data.get("descripcion"),
+    )
+    db.add(bet)
+    db.commit()
+    db.refresh(bet)
+    return {"id": bet.id, "status": "ok"}
+
+
+@app.post("/api/bets/{bet_id}/delete")
+def api_delete_bet(bet_id: int, current_user: Optional[User] = Depends(_get_user_from_token), db: Session = Depends(get_db)):
+    if not current_user:
+        raise HTTPException(401, "No autenticado")
+    bet = db.query(Bet).filter(Bet.id == bet_id, Bet.user_id == current_user.id).first()
+    if not bet:
+        raise HTTPException(404, "Apuesta no encontrada")
+    db.delete(bet)
+    db.commit()
+    return {"status": "ok"}

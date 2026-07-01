@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Date, Text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Date, Text, Float, DateTime, UniqueConstraint, Boolean
+from sqlalchemy.sql import func
 from backend.database import Base
 
 
@@ -47,4 +48,49 @@ class PosibleSalir(Base):
 
     __table_args__ = (
         UniqueConstraint("fecha", "sorteo", name="uq_posible_salir"),
+    )
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    email = Column(String(100), unique=True, nullable=False)
+    password_hash = Column(String(200), nullable=False)
+    tier = Column(String(20), nullable=False, default="free")
+    tier_expires = Column(Date, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    is_active = Column(Boolean, default=True)
+
+
+class Bet(Base):
+    __tablename__ = "bets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    fecha = Column(Date, nullable=False)
+    turno = Column(String(20), nullable=True)
+    juego = Column(String(10), nullable=False)
+    numeros = Column(String(50), nullable=False)
+    fijo = Column(String(10), nullable=True)
+    corrido = Column(String(10), nullable=True)
+    parle = Column(String(10), nullable=True)
+    candado = Column(String(10), nullable=True)
+    precio = Column(Float, nullable=True)
+    descripcion = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class UserUsage(Base):
+    __tablename__ = "user_usage"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    fecha = Column(Date, nullable=False)
+    charada_count = Column(Integer, default=0)
+    busquedas_count = Column(Integer, default=0)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "fecha", name="uq_user_usage"),
     )

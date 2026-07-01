@@ -7,6 +7,9 @@ load_dotenv()
 API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Búsqueda de Sueños - SueñaLotto", page_icon="🌙", layout="wide")
+from app.auth_check import check_tier; _t = check_tier()
+if _t.get("tier") not in ("pro", "lifetime"):
+    st.stop()
 
 st.markdown("""
 <style>

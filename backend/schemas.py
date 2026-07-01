@@ -120,6 +120,7 @@ class CompararRequest(BaseModel):
     posibles: list[int] = []
     juego: Optional[str] = None
     sorteo: Optional[str] = None
+    limite: int = 15
 
 
 class AlrededorResponse(BaseModel):
@@ -182,3 +183,76 @@ class CharadaEnriquecidaResponse(BaseModel):
     significados: list[str]
     categoria: str
     palabras_clave: list[str]
+
+
+# ─── Auth ──────────────────────────────────────────────────────────
+
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: dict
+
+
+class UserProfile(BaseModel):
+    id: int
+    username: str
+    email: str
+    tier: str
+    tier_expires: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class TierInfo(BaseModel):
+    tier: str
+    can_use_historica: bool
+    can_use_charada: bool
+    can_use_suenos: bool
+    can_use_adivinanzas: bool
+    can_use_matriz: bool
+    charada_today: int = 0
+    charada_limit: int = 999
+
+
+# ─── Bets ──────────────────────────────────────────────────────────
+
+class BetCreate(BaseModel):
+    fecha: date
+    turno: Optional[str] = None
+    juego: str
+    numeros: str
+    fijo: Optional[str] = None
+    corrido: Optional[str] = None
+    parle: Optional[str] = None
+    candado: Optional[str] = None
+    precio: Optional[float] = None
+    descripcion: Optional[str] = None
+
+
+class BetResponse(BaseModel):
+    id: int
+    user_id: int
+    fecha: date
+    turno: Optional[str]
+    juego: str
+    numeros: str
+    fijo: Optional[str]
+    corrido: Optional[str]
+    parle: Optional[str]
+    candado: Optional[str]
+    precio: Optional[float]
+    descripcion: Optional[str]
+    created_at: Optional[str]
+
+    class Config:
+        from_attributes = True

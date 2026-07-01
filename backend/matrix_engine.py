@@ -80,7 +80,7 @@ def procesar_secuencia(secuencia: list[int], tipo_matriz: str = "nueva") -> list
     return resultado
 
 
-def _score_numbers(db: Session, juego: str, sorteo: Optional[str], numeros: list[int]) -> list[dict]:
+def _score_numbers(db: Session, juego: str, sorteo: Optional[str], numeros: list[int], limite: int = 15) -> list[dict]:
     """Score a list of numbers using frequency, recency, and ML predictions."""
     frecuencias = get_frecuencias(db, juego, sorteo, 90)
     atrasados = get_atrasados(db, juego, sorteo)
@@ -120,7 +120,7 @@ def _score_numbers(db: Session, juego: str, sorteo: Optional[str], numeros: list
         })
 
     scored.sort(key=lambda x: x["score"], reverse=True)
-    return scored[:15]
+    return scored[:limite]
 
 
 def comparar_y_reducir(
@@ -131,6 +131,7 @@ def comparar_y_reducir(
     db: Optional[Session] = None,
     juego: Optional[str] = None,
     sorteo: Optional[str] = None,
+    limite: int = 15,
 ) -> dict:
     alrededor = procesar_secuencia(secuencia, tipo_matriz)
     calientes = calientes or []
@@ -163,6 +164,6 @@ def comparar_y_reducir(
     }
 
     if db and juego and discriminante:
-        result["discriminante_scored"] = _score_numbers(db, juego, sorteo, discriminante)
+        result["discriminante_scored"] = _score_numbers(db, juego, sorteo, discriminante, limite)
 
     return result

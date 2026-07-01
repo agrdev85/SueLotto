@@ -320,3 +320,14 @@ zación inmediata + diaria a las 06:30
 [2026-07-01 14:32:23]     Pick 4 M: 30 numeros guardados
 [2026-07-01 14:32:23]   [OK] posible_salir actualizado
 [2026-07-01 14:32:23] [OK] Auto-update completado. Total nuevos: 0
+[2026-07-01 15:53:36] Scheduler iniciado — actualización inmediata + diaria a las 06:00, 12:00, 18:00, 23:00
+[2026-07-01 15:53:36] === Auto-update iniciado ===
+[2026-07-01 15:54:35]   Pick 3: 0 nuevos registros
+[2026-07-01 15:55:47]   Pick 4: 0 nuevos registros
+[2026-07-01 15:55:47]   Actualizando posible_salir...
+[2026-07-01 15:55:47]     Pick 3 E: 30 numeros guardados
+[2026-07-01 15:55:48]     Pick 3 M: 30 numeros guardados
+[2026-07-01 15:55:48]     Pick 4 E: 30 numeros guardados
+[2026-07-01 15:55:50]     Pick 4 M: 30 numeros guardados
+[2026-07-01 15:55:50]   [OK] posible_salir actualizado
+[2026-07-01 15:55:50] [OK] Auto-update completado. Total nuevos: 0
