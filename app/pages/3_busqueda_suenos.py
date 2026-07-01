@@ -21,7 +21,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">🌙 Búsqueda de Sueños</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color:#94a3b8;text-align:center;">Describe tu sueño y descubre los números de la Charada Cubana asociados</p>', unsafe_allow_html=True)
+st.markdown('<p style="color:#94a3b8;text-align:center;">Describe tu sueño y descubre los números asociados según la tabla de sueños</p>', unsafe_allow_html=True)
 
 @st.cache_data(ttl=60)
 def api_get(path, params=None):
@@ -58,7 +58,7 @@ with st.container():
 
     with col_info:
         st.markdown(
-            '<span style="color:#64748b;font-size:0.85rem;">La Charada Cubana asigna números a palabras clave. '
+            '<span style="color:#64748b;font-size:0.85rem;">La tabla asigna números a palabras clave. '
             'Escribe tu sueño y extraeremos los números asociados.</span>',
             unsafe_allow_html=True,
         )
@@ -67,71 +67,56 @@ with st.container():
 if buscar and texto_sueno.strip():
     with st.spinner("Analizando sueño..."):
         result = api_post("/api/charada/buscar", {"texto": texto_sueno})
+        freqs = api_get("/api/estadisticas/frecuencias", {"juego": "Pick 3", "dias": 90})
     
     if result and result.get("resultados"):
         resultados = result["resultados"]
+        freq_map = {f["numero"]: f for f in freqs} if freqs else {}
         
-        st.markdown('<div class="card"><h3>🔢 Números Encontrados</h3>', unsafe_allow_html=True)
+        st.markdown('<div class="card"><h3>🔢 Números de tu Sueño</h3>', unsafe_allow_html=True)
         
         nums_html = ""
         for r in resultados:
             nums_html += f'<span class="dream-number">{r["numero"]:02d}</span>'
-        n = len(resultados)
+        st.markdown(
+            f'<div style="text-align:center;padding:1rem 0;">{nums_html}</div>',
+            unsafe_allow_html=True,
+        )
         
-        if n > 0:
-            st.markdown(
-                f'<div style="text-align:center;padding:1rem;">{nums_html}</div>',
-                unsafe_allow_html=True,
-            )
-        
-        st.markdown('<h4 style="color:#94a3b8;margin-top:1rem;">Combinaciones Sugeridas</h4>', unsafe_allow_html=True)
-        
-        col_c1, col_c2 = st.columns(2)
-        
-        with col_c1:
-            st.markdown('<div class="meaning-box" style="border-left: 3px solid #fbbf24;">', unsafe_allow_html=True)
-            numeros_orden = [str(r["numero"] % 10) for r in resultados]
-            if len(numeros_orden) >= 3:
-                pick3 = "".join(numeros_orden[:3])
-                st.markdown(f'<strong>Pick 3 sugerido:</strong> <span style="color:#fbbf24;font-size:1.5rem;">{pick3[0]}-{pick3[1]}-{pick3[2]}</span>', unsafe_allow_html=True)
-            if len(numeros_orden) >= 4:
-                pick4 = "".join(numeros_orden[:4])
-                st.markdown(f'<strong>Pick 4 sugerido:</strong> <span style="color:#22c55e;font-size:1.5rem;">{pick4[0]}-{pick4[1]}-{pick4[2]}-{pick4[3]}</span>', unsafe_allow_html=True)
-            elif len(numeros_orden) == 3:
-                st.markdown(f'<strong>Pick 4 sugerido:</strong> <span style="color:#22c55e;font-size:1.5rem;">{numeros_orden[0]}-{numeros_orden[1]}-{numeros_orden[2]}-{numeros_orden[0]}</span>', unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        
-        with col_c2:
-            if len(resultados) >= 3:
-                freq_nums = [r["numero"] % 10 for r in resultados]
-                from collections import Counter
-                top = Counter(freq_nums).most_common(3)
-                if len(top) == 3:
-                    st.markdown(f'<div class="meaning-box" style="border-left: 3px solid #22c55e;">', unsafe_allow_html=True)
-                    st.markdown(f'<strong>Por frecuencia:</strong> <span style="color:#22c55e;font-size:1.5rem;">{top[0][0]}-{top[1][0]}-{top[2][0]}</span>', unsafe_allow_html=True)
-                    st.markdown("</div>", unsafe_allow_html=True)
+        if freq_map:
+            ranked = []
+            for r in resultados:
+                n = r["numero"]
+                fdata = freq_map.get(n)
+                rank = "🔴" if fdata and fdata["frecuencia"] > 5 else ("🟡" if fdata and fdata["frecuencia"] > 2 else "⚪")
+                ranked.append((rank, n, fdata["frecuencia"] if fdata else 0, r["significado"]))
+            ranked.sort(key=lambda x: x[2], reverse=True)
+            
+            st.markdown('<h4 style="color:#94a3b8;">📊 Más usados en sorteos reales (90 días)</h4>', unsafe_allow_html=True)
+            for rank, n, freq, sig in ranked:
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:0.75rem;padding:0.2rem 0;border-bottom:1px solid #334155;">'
+                    f'<span style="font-size:1.2rem;">{rank}</span>'
+                    f'<span style="background:#fbbf24;color:#0f172a;font-weight:bold;border-radius:0.3rem;padding:0.1rem 0.5rem;">{n:02d}</span>'
+                    f'<span style="color:#e2e8f0;flex:1;">{sig}</span>'
+                    f'<span style="color:#94a3b8;">{freq} apariciones</span>'
+                    f'</div>', unsafe_allow_html=True)
         
         st.markdown("---")
-        st.markdown('<h4 style="color:#94a3b8;">📖 Significados por orden de aparición</h4>', unsafe_allow_html=True)
+        st.markdown('<h4 style="color:#94a3b8;">📖 Significados en la Charada</h4>', unsafe_allow_html=True)
         
-        for i, r in enumerate(resultados):
-            categoria_html = ""
-            if r.get("categoria"):
-                categoria_html = f'<span style="color:#94a3b8;font-size:0.85rem;">{r["categoria"]}</span>'
+        for r in resultados:
+            cat = f' · <span style="color:#94a3b8;font-size:0.85rem;">{r.get("categoria", "")}</span>' if r.get("categoria") else ""
             st.markdown(
-                f'<div class="meaning-box" style="display:flex;align-items:center;gap:1rem;">'
-                f'<span style="background:#fbbf24;color:#0f172a;font-weight:bold;border-radius:50%;width:2rem;height:2rem;'
-                f'text-align:center;line-height:2rem;">{r["numero"]:02d}</span>'
-                f'<div><strong style="color:#f1f5f9;">{r["significado"]}</strong>'
-                f' · {categoria_html}'
-                f'</div>'
-                f'</div>', unsafe_allow_html=True
-            )
+                f'<div style="background:#334155;border-radius:0.5rem;padding:0.4rem 1rem;margin:0.2rem 0;display:flex;align-items:center;gap:1rem;">'
+                f'<span style="background:#fbbf24;color:#0f172a;font-weight:bold;border-radius:0.3rem;padding:0.1rem 0.5rem;">{r["numero"]:02d}</span>'
+                f'<span style="color:#f1f5f9;">{r["significado"]}</span>{cat}'
+                f'</div>', unsafe_allow_html=True)
         
         st.markdown("</div>", unsafe_allow_html=True)
         
     else:
-        st.warning("No se encontraron palabras de la Charada Cubana en tu sueño. Prueba con más detalles o palabras diferentes.")
+        st.warning("No se encontraron palabras conocidas en tu sueño. Prueba con más detalles o palabras diferentes.")
 
 elif buscar:
     st.warning("Por favor, escribe la descripción de tu sueño.")
@@ -139,18 +124,21 @@ elif buscar:
 with st.container():
     st.markdown('<div class="card"><h3>📚 Referencia Rápida de la Charada</h3>', unsafe_allow_html=True)
     st.markdown(
-        '<p style="color:#94a3b8;font-size:0.9rem;">Algunas palabras comunes y sus números en la Charada Cubana:</p>',
+        '<p style="color:#94a3b8;font-size:0.9rem;">Algunas palabras comunes y sus números asociados:</p>',
         unsafe_allow_html=True,
     )
     
     ref_data = [
-        ("1", "Caballo"), ("8", "Viaje"),
-        ("2", "Mariposa"), ("9", "Elefante"),
-        ("3", "Marinero"), ("10", "Pescado Grande"),
-        ("4", "Gato Boca"), ("15", "Perro"),
-        ("5", "Monja"), ("21", "Maja"),
-        ("6", "Jicotea"), ("46", "Guagua"),
-        ("7", "Caracol"), ("73", "Serpiente"),
+        ("1", "Caballo"), ("15", "Perro"),
+        ("2", "Mariposa"), ("21", "Maja"),
+        ("3", "Marinero"), ("46", "Guagua"),
+        ("4", "Gato Boca"), ("73", "Serpiente"),
+        ("5", "Monja"), ("75", "Cinematógrafo / Perro mediano"),
+        ("6", "Jicotea"), ("85", "Casa"),
+        ("7", "Caracol"), ("95", "Guerra del mar / Perro grande"),
+        ("8", "Viaje"), ("100", "Pescado"),
+        ("9", "Elefante"), ("0", "Buzo"),
+        ("10", "Pescado Grande"),
     ]
     
     ref_html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">'

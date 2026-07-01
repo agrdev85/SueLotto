@@ -37,7 +37,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header"><h1>🎱 Sorteos</h1><p>Análisis inteligente de la Florida Lottery • Pick 3 & Pick 4 • Charada Cubana</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header"><h1>🎱 Sorteos</h1><p>Análisis inteligente de la Florida Lottery • Pick 3 & Pick 4 • La Charada</p></div>', unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=300)
@@ -68,7 +68,7 @@ with col1:
                 f'<span class="result-number">{r["n3"]}</span>'
                 f'</div>', unsafe_allow_html=True)
     else:
-        st.info("Conéctate a la API y ejecuta la importación de datos.")
+        st.info("⏳ Cargando datos...")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
@@ -88,7 +88,7 @@ with col2:
                 f'{nums_html}'
                 f'</div>', unsafe_allow_html=True)
     else:
-        st.info("Conéctate a la API y ejecuta la importación de datos.")
+        st.info("⏳ Cargando datos...")
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---")
@@ -96,16 +96,28 @@ st.markdown("---")
 col3, col4 = st.columns(2)
 
 with col3:
-    st.markdown('<div class="card"><h3>🔥 Números más Frecuentes - Pick 3 (30 días)</h3>', unsafe_allow_html=True)
-    freqs = api_get("/api/estadisticas/frecuencias", {"juego": "Pick 3", "dias": 30})
-    if freqs:
-        top = freqs[:10]
+    st.markdown('<div class="card"><h3>🔥 Números Charada más Frecuentes (90 días)</h3>', unsafe_allow_html=True)
+    charada_freqs = api_get("/api/estadisticas/charada-frecuencias", {"juego": "Pick 3", "dias": 90})
+    if not charada_freqs:
+        st.info("⏳ Cargando datos...")
+    else:
+        top = charada_freqs[:20]
+        decenas = [n for n in range(0, 100, 10)]
+        colors = []
+        for f in top:
+            if f["numero"] in decenas:
+                colors.append("#fbbf24")
+            elif f["frecuencia"] > top[0]["frecuencia"] * 0.7:
+                colors.append("#ef4444")
+            else:
+                colors.append("#3b82f6")
         fig = px.bar(
             x=[f["numero"] for f in top],
             y=[f["frecuencia"] for f in top],
-            labels={"x": "Número", "y": "Frecuencia"},
-            color=[f["frecuencia"] for f in top],
-            color_continuous_scale=["#3b82f6", "#ef4444"],
+            labels={"x": "Número Charada", "y": "Frecuencia"},
+            color=colors,
+            color_discrete_map="identity",
+            text=[f["numero"] for f in top],
         )
         fig.update_layout(
             plot_bgcolor="rgba(0,0,0,0)",
@@ -114,27 +126,40 @@ with col3:
             xaxis=dict(tickmode="linear", dtick=1),
             height=300,
             margin=dict(l=20, r=20, t=10, b=20),
+            showlegend=False,
         )
         fig.update_traces(
             marker_line_color="#334155", marker_line_width=1,
-            hovertemplate="Número %{x}<br>Frecuencia: %{y}<extra></extra>"
+            hovertemplate="Número %{x}<br>Frecuencia: %{y}<extra></extra>",
+            textposition="outside",
+            textfont_color="#94a3b8",
         )
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Importa datos históricos para ver estadísticas.")
+
+        st.markdown("""
+        <div style="display:flex;gap:1rem;margin-top:0.5rem;flex-wrap:wrap;font-size:0.75rem;">
+            <span><span style="display:inline-block;width:0.7rem;height:0.7rem;background:#fbbf24;border-radius:0.15rem;"></span> Decena completa</span>
+            <span><span style="display:inline-block;width:0.7rem;height:0.7rem;background:#ef4444;border-radius:0.15rem;"></span> Muy frecuente</span>
+            <span><span style="display:inline-block;width:0.7rem;height:0.7rem;background:#3b82f6;border-radius:0.15rem;"></span> Frecuente</span>
+        </div>
+        """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col4:
-    st.markdown('<div class="card"><h3>❄️ Números más Atrasados - Pick 3</h3>', unsafe_allow_html=True)
-    atrasados = api_get("/api/estadisticas/atrasados", {"juego": "Pick 3"})
-    if atrasados:
-        top_atrasados = atrasados[:10]
+    st.markdown('<div class="card"><h3>🎯 Top 10 Números Sugeridos</h3>', unsafe_allow_html=True)
+    preds = api_get("/api/predicciones", {"juego": "Pick 3"})
+    if not preds:
+        st.info("⏳ Cargando datos...")
+    else:
+        top_preds = preds[:10]
+        pred_colors = ["#ef4444" if p["probabilidad"] > 0.12 else "#fbbf24" if p["probabilidad"] > 0.08 else "#3b82f6" for p in top_preds]
         fig2 = px.bar(
-            x=[a["numero"] for a in top_atrasados],
-            y=[a["dias_sin_salir"] for a in top_atrasados],
-            labels={"x": "Número", "y": "Días sin salir"},
-            color=[a["dias_sin_salir"] for a in top_atrasados],
-            color_continuous_scale=["#3b82f6", "#8b5cf6", "#ef4444"],
+            x=[p["numero"] for p in top_preds],
+            y=[p["probabilidad"] for p in top_preds],
+            labels={"x": "Dígito", "y": "Probabilidad"},
+            color=pred_colors,
+            color_discrete_map="identity",
+            text=[f"{p['probabilidad']*100:.1f}%" for p in top_preds],
         )
         fig2.update_layout(
             plot_bgcolor="rgba(0,0,0,0)",
@@ -143,14 +168,15 @@ with col4:
             xaxis=dict(tickmode="linear", dtick=1),
             height=300,
             margin=dict(l=20, r=20, t=10, b=20),
+            showlegend=False,
         )
         fig2.update_traces(
             marker_line_color="#334155", marker_line_width=1,
-            hovertemplate="Número %{x}<br>Días: %{y}<extra></extra>"
+            textposition="outside",
+            textfont_color="#fbbf24",
+            hovertemplate="Dígito %{x}<br>Prob: %{y:.1%}<extra></extra>",
         )
         st.plotly_chart(fig2, use_container_width=True)
-    else:
-        st.info("Importa datos históricos para ver estadísticas.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---")
@@ -158,42 +184,34 @@ st.markdown("---")
 col5, col6 = st.columns(2)
 
 with col5:
-    st.markdown('<div class="card"><h3>🤖 Predicciones ML - Pick 3</h3>', unsafe_allow_html=True)
-    preds = api_get("/api/predicciones", {"juego": "Pick 3"})
-    if preds:
-        top_preds = preds[:10]
-        fig3 = px.bar(
-            x=[p["numero"] for p in top_preds],
-            y=[p["probabilidad"] for p in top_preds],
-            labels={"x": "Número", "y": "Probabilidad"},
-            color=[p["probabilidad"] for p in top_preds],
-            color_continuous_scale=["#3b82f6", "#22c55e", "#fbbf24"],
-        )
-        fig3.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font_color="#94a3b8",
-            xaxis=dict(tickmode="linear", dtick=1),
-            height=300,
-            margin=dict(l=20, r=20, t=10, b=20),
-        )
-        fig3.update_traces(
-            marker_line_color="#334155", marker_line_width=1,
-            hovertemplate="Número %{x}<br>Prob: %{y:.1%}<extra></extra>"
-        )
-        st.plotly_chart(fig3, use_container_width=True)
+    st.markdown('<div class="card"><h3>📊 Últimos Resultados - Top Charada</h3>', unsafe_allow_html=True)
+    charada_freqs = api_get("/api/estadisticas/charada-frecuencias", {"juego": "Pick 3", "dias": 30})
+    if charada_freqs and len(charada_freqs) > 0:
+        top10 = charada_freqs[:10]
+        st.markdown('<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem;">', unsafe_allow_html=True)
+        for f in top10:
+            n_color = "#fbbf24" if f["numero"] % 10 == 0 else "#e2e8f0"
+            st.markdown(
+                f'<div style="background:#334155;padding:0.3rem 0.8rem;border-radius:0.3rem;'
+                f'display:flex;justify-content:space-between;">'
+                f'<span style="color:{n_color};font-weight:bold;">{f["numero"]:02d}</span>'
+                f'<span style="color:#94a3b8;">{f["frecuencia"]}× ({f["porcentaje"]}%)</span>'
+                f'</div>', unsafe_allow_html=True
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
     else:
-        st.info("Suficientes datos para predicciones.")
+        st.info("⏳ Cargando datos...")
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col6:
     st.markdown('<div class="card"><h3>🎯 Consejos Rápidos</h3>', unsafe_allow_html=True)
     st.markdown("""
     <ul style="color: #94a3b8; line-height: 1.8;">
-        <li>🔍 <strong>Busca tus sueños</strong> en la página <em>Búsqueda de Sueños</em></li>
-        <li>📈 Revisa <strong>estadísticas detalladas</strong> por período y sorteo</li>
+        <li>🔍 <strong>Busca tus sueños</strong> para encontrar números Charada asociados</li>
+        <li>📈 Revisa las <strong>estadísticas detalladas</strong> por período y sorteo</li>
         <li>🧠 Usa la <strong>IA</strong> para interpretar adivinanzas</li>
-        <li>🎲 Combina números <span style="color:#ef4444;">calientes</span> y <span style="color:#3b82f6;">fríos</span></li>
+        <li>🎲 Combina números <span style="color:#ef4444;">calientes</span> (alta frecuencia) y <span style="color:#3b82f6;">atrasados</span></li>
+        <li>🔟 Las <strong style="color:#fbbf24;">decenas completas</strong> (10, 20, 30...) tienen significados especiales en la Charada</li>
     </ul>
     """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)

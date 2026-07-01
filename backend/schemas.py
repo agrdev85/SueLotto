@@ -118,6 +118,8 @@ class CompararRequest(BaseModel):
     tipo_matriz: str = "nueva"
     calientes: list[int] = []
     posibles: list[int] = []
+    juego: Optional[str] = None
+    sorteo: Optional[str] = None
 
 
 class AlrededorResponse(BaseModel):
@@ -149,6 +151,15 @@ class CompararResponse(BaseModel):
     total_interseccion_posibles: int
     total_interseccion_ambos: int
     total_discriminante: int
+    discriminante_scored: list[dict] = []
+
+
+class NumeroScore(BaseModel):
+    numero: int
+    score: float
+    frecuencia: int
+    dias_sin_salir: int
+    probabilidad_ml: float
 
 
 class CalientesResponse(BaseModel):

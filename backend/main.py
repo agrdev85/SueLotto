@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Depends, Query, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -14,6 +15,7 @@ from backend.crud import (
     get_adivinanza_hoy,
     get_posibles_salir,
     get_charada_enriquecida,
+    get_charada_frecuencias,
 )
 from backend.lottery_analyzer import generar_predicciones, calcular_numeros_calientes, obtener_posibles_salir
 from backend.charada_engine import buscar_en_sueno
@@ -180,7 +182,10 @@ def api_matriz_secuencia(req: SecuenciaRequest, db: Session = Depends(get_db)):
 @app.post("/api/matriz/comparar")
 def api_matriz_comparar(req: CompararRequest, db: Session = Depends(get_db)):
     try:
-        resultado = comparar_y_reducir(req.secuencia, req.tipo_matriz, req.calientes, req.posibles)
+        resultado = comparar_y_reducir(
+            req.secuencia, req.tipo_matriz, req.calientes, req.posibles,
+            db=db, juego=req.juego, sorteo=req.sorteo,
+        )
         return resultado
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -208,6 +213,27 @@ def api_posibles_salir(
     db: Session = Depends(get_db),
 ):
     return obtener_posibles_salir(db, juego, fecha, sorteo, use_ml)
+
+
+# ─── Charada Frecuencias (análisis 0-99) ──────────────────────────
+@app.get("/api/estadisticas/charada-frecuencias")
+def api_charada_frecuencias(
+    juego: str = Query("Pick 3", pattern="^(Pick 3|Pick 4)$"),
+    sorteo: Optional[str] = Query(None, pattern="^(E|M)$"),
+    dias: int = 90,
+    db: Session = Depends(get_db),
+):
+    return get_charada_frecuencias(db, juego, sorteo, dias)
+
+
+# ─── IA Status ────────────────────────────────────────────────────
+@app.get("/api/ia/status")
+def api_ia_status():
+    from backend.adivinanza_ai import gemini_activo
+    return {
+        "gemini_disponible": gemini_activo(),
+        "gemini_api_key_configurada": bool(os.getenv("GEMINI_API_KEY", "")),
+    }
 
 
 # ─── Charada Enriquecida ──────────────────────────────────────────

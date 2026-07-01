@@ -110,14 +110,15 @@ def start():
         try:
             _scheduler = BackgroundScheduler()
             _scheduler.add_job(run_update, "date", run_date=datetime.now(), id="startup_update")
-            _scheduler.add_job(
-                run_update,
-                CronTrigger(hour=6, minute=30),
-                id="daily_update",
-                replace_existing=True,
-            )
+            for hour in [6, 12, 18, 23]:
+                _scheduler.add_job(
+                    run_update,
+                    CronTrigger(hour=hour, minute=0),
+                    id=f"daily_update_{hour}h",
+                    replace_existing=True,
+                )
             _scheduler.start()
-            _log("Scheduler iniciado — actualización inmediata + diaria a las 06:30")
+            _log("Scheduler iniciado — actualización inmediata + diaria a las 06:00, 12:00, 18:00, 23:00")
         except Exception as e:
             _log(f"Error iniciando scheduler: {e}")
 

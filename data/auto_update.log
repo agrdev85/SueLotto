@@ -234,3 +234,89 @@ zación inmediata + diaria a las 06:30
 [2026-06-29 18:41:12]     Pick 4 M: 10 numeros guardados
 [2026-06-29 18:41:12]   [OK] posible_salir actualizado
 [2026-06-29 18:41:12] [OK] Auto-update completado. Total nuevos: 0
+[2026-07-01 08:11:38] Scheduler iniciado — actualización inmediata + diaria a las 06:30
+[2026-07-01 08:12:14]   Pick 3: 0 nuevos registros
+[2026-07-01 08:12:55]   Pick 4: 0 nuevos registros
+[2026-07-01 08:12:55]   Actualizando posible_salir...
+[2026-07-01 08:14:31]     Pick 3 E: 10 numeros guardados
+[2026-07-01 08:14:34]     Pick 3 M: 10 numeros guardados
+[2026-07-01 08:14:37]     Pick 4 E: 10 numeros guardados
+[2026-07-01 08:14:41]     Pick 4 M: 10 numeros guardados
+[2026-07-01 08:14:41]   [OK] posible_salir actualizado
+[2026-07-01 08:14:41] [OK] Auto-update completado. Total nuevos: 0
+[2026-07-01 08:56:50] Scheduler iniciado — actualización inmediata + diaria a las 06:30
+[2026-07-01 08:56:50] === Auto-update iniciado ===
+[2026-07-01 08:57:24]   Pick 3: 0 nuevos registros
+[2026-07-01 08:58:00]   Pick 4: 0 nuevos registros
+[2026-07-01 08:58:00]   Actualizando posible_salir...
+[2026-07-01 08:58:52]     Pick 3 E: 10 numeros guardados
+[2026-07-01 08:58:55]     Pick 3 M: 10 numeros guardados
+[2026-07-01 08:58:58]     Pick 4 E: 10 numeros guardados
+[2026-07-01 08:59:02]     Pick 4 M: 10 numeros guardados
+[2026-07-01 08:59:02]   [OK] posible_salir actualizado
+[2026-07-01 08:59:02] [OK] Auto-update completado. Total nuevos: 0
+[2026-07-01 10:23:17] Scheduler iniciado — actualización inmediata + diaria a las 06:00, 12:00, 18:00, 23:00
+[2026-07-01 10:23:17] === Auto-update iniciado ===
+[2026-07-01 10:23:50]   Pick 3: 0 nuevos registros
+[2026-07-01 10:24:28]   Pick 4: 0 nuevos registros
+[2026-07-01 10:24:28]   Actualizando posible_salir...
+[2026-07-01 10:25:55]     Pick 3 E: 10 numeros guardados
+[2026-07-01 10:26:06]     Pick 3 M: 10 numeros guardados
+[2026-07-01 10:26:09]     Pick 4 E: 10 numeros guardados
+[2026-07-01 10:26:13]     Pick 4 M: 10 numeros guardados
+[2026-07-01 10:26:13]   [OK] posible_salir actualizado
+[2026-07-01 10:26:13] [OK] Auto-update completado. Total nuevos: 0
+[2026-07-01 10:28:35] === Auto-update iniciado ===
+[2026-07-01 10:28:35] Scheduler iniciado — actualización inmediata + diaria a las 06:00, 12:00, 18:00, 23:00
+[2026-07-01 10:29:07]   Pick 3: 4 nuevos registros
+[2026-07-01 10:29:49]   Pick 4: 4 nuevos registros
+[2026-07-01 10:29:49]   Actualizando posible_salir...
+[2026-07-01 10:30:00]     Pick 3 E: 10 numeros guardados
+[2026-07-01 10:30:05]     Pick 3 M: 10 numeros guardados
+[2026-07-01 10:30:08]     Pick 4 E: 10 numeros guardados
+[2026-07-01 10:30:12]     Pick 4 M: 10 numeros guardados
+[2026-07-01 10:30:12]   [OK] posible_salir actualizado
+[2026-07-01 10:30:12] [OK] Auto-update completado. Total nuevos: 8
+[2026-07-01 11:18:11] Scheduler iniciado — actualización inmediata + diaria a las 06:00, 12:00, 18:00, 23:00
+[2026-07-01 11:18:11] === Auto-update iniciado ===
+[2026-07-01 11:18:48]   Pick 3: 0 nuevos registros
+[2026-07-01 11:19:28]   Pick 4: 0 nuevos registros
+[2026-07-01 11:19:28]   Actualizando posible_salir...
+[2026-07-01 11:19:36]     Pick 3 E: 10 numeros guardados
+[2026-07-01 11:19:39]     Pick 3 M: 10 numeros guardados
+[2026-07-01 11:19:43]     Pick 4 E: 10 numeros guardados
+[2026-07-01 11:19:47]     Pick 4 M: 10 numeros guardados
+[2026-07-01 11:19:47]   [OK] posible_salir actualizado
+[2026-07-01 11:19:47] [OK] Auto-update completado. Total nuevos: 0
+[2026-07-01 12:00:00] === Auto-update iniciado ===
+[2026-07-01 12:00:31]   Pick 3: 0 nuevos registros
+[2026-07-01 12:01:09]   Pick 4: 0 nuevos registros
+[2026-07-01 12:01:09]   Actualizando posible_salir...
+[2026-07-01 12:01:13]     Pick 3 E: 10 numeros guardados
+[2026-07-01 12:01:18]     Pick 3 M: 10 numeros guardados
+[2026-07-01 12:01:21]     Pick 4 E: 10 numeros guardados
+[2026-07-01 12:01:25]     Pick 4 M: 10 numeros guardados
+[2026-07-01 12:01:25]   [OK] posible_salir actualizado
+[2026-07-01 12:01:25] [OK] Auto-update completado. Total nuevos: 0
+[2026-07-01 12:17:06] Scheduler iniciado — actualización inmediata + diaria a las 06:00, 12:00, 18:00, 23:00
+[2026-07-01 12:17:06] === Auto-update iniciado ===
+[2026-07-01 12:17:42]   Pick 3: 0 nuevos registros
+[2026-07-01 12:18:19]   Pick 4: 0 nuevos registros
+[2026-07-01 12:18:19]   Actualizando posible_salir...
+[2026-07-01 12:18:19]     Pick 3 E: 30 numeros guardados
+[2026-07-01 12:18:19]     Pick 3 M: 30 numeros guardados
+[2026-07-01 12:18:20]     Pick 4 E: 30 numeros guardados
+[2026-07-01 12:18:21]     Pick 4 M: 30 numeros guardados
+[2026-07-01 12:18:21]   [OK] posible_salir actualizado
+[2026-07-01 12:18:21] [OK] Auto-update completado. Total nuevos: 0
+[2026-07-01 14:31:11] === Auto-update iniciado ===
+[2026-07-01 14:31:11] Scheduler iniciado — actualización inmediata + diaria a las 06:00, 12:00, 18:00, 23:00
+[2026-07-01 14:31:43]   Pick 3: 0 nuevos registros
+[2026-07-01 14:32:21]   Pick 4: 0 nuevos registros
+[2026-07-01 14:32:21]   Actualizando posible_salir...
+[2026-07-01 14:32:21]     Pick 3 E: 30 numeros guardados
+[2026-07-01 14:32:21]     Pick 3 M: 30 numeros guardados
+[2026-07-01 14:32:22]     Pick 4 E: 30 numeros guardados
+[2026-07-01 14:32:23]     Pick 4 M: 30 numeros guardados
+[2026-07-01 14:32:23]   [OK] posible_salir actualizado
+[2026-07-01 14:32:23] [OK] Auto-update completado. Total nuevos: 0

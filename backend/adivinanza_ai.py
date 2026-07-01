@@ -1,11 +1,35 @@
 import os
+import sys
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+logger = logging.getLogger("adivinanza_ai")
 
-PROMPT_TEMPLATE = """Eres un experto en la Charada Cubana (números 1-100) y la interpretación de adivinanzas.
+# Quick self-test on import
+_gemini_disponible = False
+if GEMINI_API_KEY:
+    try:
+        from google import genai as genai_client
+        client = genai_client.Client(api_key=GEMINI_API_KEY)
+        # Just check the API key format is plausible
+        if GEMINI_API_KEY.startswith("AIza") or len(GEMINI_API_KEY) > 20:
+            _gemini_disponible = True
+        else:
+            logger.warning("GEMINI_API_KEY tiene formato inesperado, se usará fallback local")
+    except Exception as e:
+        logger.warning(f"Error al inicializar Gemini: {e}")
+else:
+    logger.warning("GEMINI_API_KEY no configurada, se usará análisis local")
+
+
+def gemini_activo() -> bool:
+    return _gemini_disponible
+
+
+PROMPT_TEMPLATE = """Eres un experto en la interpretación de sueños y adivinanzas (números 1-100) y su relación con la lotería.
 
 Tu tarea es analizar la siguiente adivinanza y la interpretación que el usuario ha dado,
 y sugerir números de la charada (1-100) que podrían estar relacionados.
@@ -64,8 +88,10 @@ def analizar_adivinanza(adivinanza: str, interpretacion: str, api_key: str = Non
         json_match = re.search(r"\{.*\}", text, re.DOTALL)
         if json_match:
             return json.loads(json_match.group())
+        logger.warning("Gemini respondió sin JSON válido, usando fallback local")
         return _fallback_analysis(adivinanza, interpretacion)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error en Gemini API: {e}", exc_info=True)
         return _fallback_analysis(adivinanza, interpretacion)
 
 
@@ -92,7 +118,7 @@ def _fallback_analysis(adivinanza: str, interpretacion: str) -> dict:
         if palabra in texto_combinado:
             sugerencias.append({
                 "numero": numero,
-                "razon": f"La palabra '{palabra}' aparece en el texto y está asociada al número {numero} en la Charada Cubana.",
+                "razon": f"La palabra '{palabra}' aparece en el texto y está asociada al número {numero} en la tabla.",
             })
 
     sugerencias = sugerencias[:5]
@@ -104,5 +130,5 @@ def _fallback_analysis(adivinanza: str, interpretacion: str) -> dict:
 
     return {
         "sugerencias": sugerencias,
-        "razonamiento": "Análisis local basado en palabras clave de la Charada Cubana. Conecta con Gemini API para un análisis más profundo.",
+        "razonamiento": "Análisis local basado en palabras clave. Conecta con Gemini API para un análisis más profundo.",
     }

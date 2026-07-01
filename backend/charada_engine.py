@@ -188,49 +188,8 @@ def poblar_charada_db(db: Session, path: str = "data/charada.json"):
 
 
 def _normalize(word: str) -> str:
-    """Remove accents and lowercase."""
     accents = str.maketrans("áéíóúñÁÉÍÓÚÑ", "aeiounAEIOUN")
     return word.lower().translate(accents)
-
-
-def _build_maps(all_entries):
-    """
-    Build lookup maps with priority:
-      1. primary_exact: first significado (primary) exact phrase match
-      2. exact: any significado exact phrase match
-      3. primary_word: word from primary significado
-      4. word: any word from any significado
-    """
-    primary_exact = {}
-    exact = {}
-    primary_word = {}
-    word_map = {}
-
-    for c in all_entries:
-        significados = json.loads(c.significados)
-        for idx, sig in enumerate(significados):
-            sig_norm = _normalize(sig)
-            is_primary = idx == 0
-
-            if sig_norm not in exact:
-                exact[sig_norm] = c
-            if is_primary and sig_norm not in primary_exact:
-                primary_exact[sig_norm] = c
-
-            for word in sig_norm.split():
-                w = word.strip()
-                if w and w not in STOPWORDS:
-                    if w not in word_map:
-                        word_map[w] = (c, sig_norm, is_primary)
-                    if is_primary and w not in primary_word:
-                        primary_word[w] = (c, sig_norm)
-
-    return {
-        "primary_exact": primary_exact,
-        "exact": exact,
-        "primary_word": primary_word,
-        "word": word_map,
-    }
 
 
 def buscar_en_sueno(db: Session, texto: str) -> list[dict]:
@@ -238,7 +197,32 @@ def buscar_en_sueno(db: Session, texto: str) -> list[dict]:
     palabras = texto_limpio.split()
 
     all_entries = db.query(Charada).all()
-    maps = _build_maps(all_entries)
+
+    # Build phrase map for compound phrases
+    phrase_map = {}  # normalized_phrase -> [(entry, matched_significado, is_primary, phrase_len), ...]
+    word_map = {}    # normalized_word -> [(entry, matched_significado, is_primary), ...]
+    
+    for c in all_entries:
+        significados = json.loads(c.significados)
+        for idx, sig in enumerate(significados):
+            sig_norm = _normalize(sig)
+            is_primary = idx == 0
+            words = sig_norm.split()
+            
+            # Single words
+            for w in words:
+                if w not in STOPWORDS and len(w) > 1:
+                    if w not in word_map:
+                        word_map[w] = []
+                    word_map[w].append((c, sig, is_primary))
+            
+            # Compound phrases (2-4 words)
+            for start in range(len(words)):
+                for length in range(2, min(5, len(words) - start + 1)):
+                    phrase = " ".join(words[start:start+length])
+                    if phrase not in phrase_map:
+                        phrase_map[phrase] = []
+                    phrase_map[phrase].append((c, sig, is_primary, length))
 
     resultados = []
     seen_numbers = set()
@@ -250,46 +234,43 @@ def buscar_en_sueno(db: Session, texto: str) -> list[dict]:
             i += 1
             continue
 
-        entry = None
-        matched_sig = None
-        skip = 1
-
-        # Priority 1: multi-word exact phrase match (try longest first)
-        for end in range(min(i + 4, len(palabras) - 1), i, -1):
-            phrase = " ".join(_normalize(palabras[j]) for j in range(i, end + 1))
-            if phrase in maps["primary_exact"]:
-                entry = maps["primary_exact"][phrase]
-                matched_sig = phrase
-                skip = end - i + 1
+        # Try longest compound phrase match first (up to 4 words)
+        matched = False
+        best_phrase_len = 0
+        best_matches = []
+        
+        for length in range(min(4, len(palabras) - i), 1, -1):
+            phrase = " ".join(_normalize(palabras[j]) for j in range(i, i + length))
+            if phrase in phrase_map:
+                matches = phrase_map[phrase]
+                # Sort: primary first, then by numero
+                matches.sort(key=lambda x: (0 if x[2] else 1, x[0].numero))
+                best_matches = matches
+                best_phrase_len = length
+                matched = True
                 break
-            if phrase in maps["exact"]:
-                entry = maps["exact"][phrase]
-                matched_sig = phrase
-                skip = end - i + 1
-                break
-
-        if not entry and palabra_norm in maps["primary_exact"]:
-            entry = maps["primary_exact"][palabra_norm]
-            matched_sig = palabra_norm
-        elif not entry and palabra_norm in maps["exact"]:
-            entry = maps["exact"][palabra_norm]
-            matched_sig = palabra_norm
-        elif not entry and palabra_norm in maps["primary_word"]:
-            entry, matched_sig = maps["primary_word"][palabra_norm]
-        elif not entry and palabra_norm in maps["word"]:
-            entry, matched_sig, _ = maps["word"][palabra_norm]
-
-        if entry and entry.numero not in seen_numbers:
-            seen_numbers.add(entry.numero)
-            resultados.append({
-                "palabra": palabras[i],
-                "numero": entry.numero,
-                "significado": json.loads(entry.significados)[0],
-                "categoria": entry.categoria,
-                "posicion": i,
-            })
-
-        i += skip
+        
+        if not matched and palabra_norm in word_map:
+            matches = word_map[palabra_norm]
+            matches.sort(key=lambda x: (0 if x[2] else 1, x[0].numero))
+            best_matches = matches
+            best_phrase_len = 1
+        
+        if best_matches:
+            for c, matched_sig, is_primary, *_ in best_matches:
+                if c.numero not in seen_numbers:
+                    seen_numbers.add(c.numero)
+                    resultados.append({
+                        "palabra": " ".join(palabras[i:i+best_phrase_len]),
+                        "numero": c.numero,
+                        "significado": matched_sig,
+                        "categoria": c.categoria,
+                        "posicion": i,
+                        "es_primario": is_primary,
+                    })
+            i += best_phrase_len
+        else:
+            i += 1
 
     return resultados
 

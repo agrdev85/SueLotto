@@ -26,6 +26,10 @@ st.markdown("""
     .charada-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
     .matrix-cell { padding: 6px 2px; text-align: center; border-radius: 4px; font-weight: bold; font-size: 0.85rem; cursor: pointer; transition: opacity 0.2s; }
     .matrix-cell:hover { opacity: 0.8; }
+    .sig-flex { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .sig-flex > span { background: #334155; border: 1px solid #475569; border-radius: 0.4rem; padding: 0.3rem 0.7rem; color: #e2e8f0; font-size: 0.85rem; white-space: nowrap; }
+    .grid-num { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .grid-num > a { text-decoration: none; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -102,78 +106,177 @@ with tabs[0]:
         st.session_state.matriz_sel = None
 
     matriz_actual = MATRIZ_NUEVA if tipo_matriz == "nueva" else MATRIZ_VIEJA
-
-    # Read matrix click from query params (set by JavaScript, no page reload)
-    mr = st.query_params.get("mr")
-    mc = st.query_params.get("mc")
-    if mr is not None and mc is not None:
-        try:
-            val = matriz_actual[int(mr)][int(mc)]
-            if val != 0:
-                st.session_state.matriz_sel = int(val)
-        except (ValueError, IndexError):
-            pass
-
     cols_labels = [chr(ord('a') + i) for i in range(len(matriz_actual[0]))]
 
-    def cell_color(val):
-        if val == 0: return '#0f172a'
-        if val == st.session_state.get("matriz_sel"): return 'linear-gradient(135deg,#3b82f6,#8b5cf6)'
-        if val in set_ambos: return '#fbbf24'
-        if val in set_calientes: return '#ef4444'
-        if val in set_posibles: return '#3b82f6'
-        return '#1e293b'
+    # Build self-contained matrix component using st.components.v1.html
+    # so clicks update the Alrededor card inline without page reload
+    import json as _json
 
-    def cell_text(val):
-        if val == 0: return '#475569'
-        if val in set_ambos: return '#0f172a'
-        return 'white'
+    _sel = st.session_state.get("matriz_sel")
 
-    html = '<div style="overflow-x:auto;"><table style="border-collapse:collapse;width:100%;">'
-    html += '<tr><td style="width:1.2rem;"></td>'
+    _rows_html = ""
+    _rows_html += '<tr><td style="width:1.2rem;"></td>'
     for c_label in cols_labels:
-        html += f'<td style="text-align:center;color:#64748b;font-size:0.7rem;padding:2px 1px;">{c_label.upper()}</td>'
-    html += '</tr>'
-    for i, row in enumerate(matriz_actual):
-        html += f'<tr><td style="text-align:center;color:#64748b;font-size:0.65rem;">{i+1}</td>'
-        for j, val in enumerate(row):
-            bg = cell_color(val)
-            tc = cell_text(val)
-            label = str(val) if val != 0 else ''
-            if val != 0:
-                html += (f'<td class="matrix-cell" style="background:{bg};color:{tc};" '
-                         f'onclick="var u=new URL(window.location);u.searchParams.set(\'mr\',{i});u.searchParams.set(\'mc\',{j});window.history.pushState({{}},\'\',u);window.dispatchEvent(new Event(\'popstate\'))">{label}</td>')
-            else:
-                html += f'<td style="background:{bg};color:{tc};padding:6px 2px;text-align:center;border-radius:4px;font-size:0.85rem;"></td>'
-        html += '</tr>'
-    html += '</table></div>'
-    st.markdown(html, unsafe_allow_html=True)
+        _rows_html += f'<td style="text-align:center;color:#64748b;font-size:0.7rem;padding:2px 1px;">{c_label.upper()}</td>'
+    _rows_html += '</tr>'
 
-    # Alrededor card below the matrix
-    sel_num = st.session_state.matriz_sel
-    if sel_num is not None:
-        resp = api_post("/api/matriz/alrededor", {"numero": sel_num, "tipo_matriz": tipo_matriz})
-        if resp:
-            numeros = resp["numeros"]
-            chunks = [numeros[i:i+10] for i in range(0, len(numeros), 10)]
-            rows_html = ""
-            for chunk in chunks:
-                nums = "".join(
-                    f'<span style="display:inline-flex;align-items:center;justify-content:center;'
-                    f'background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:white;font-weight:bold;'
-                    f'font-size:0.95rem;width:2.2rem;height:2.2rem;border-radius:0.4rem;'
-                    f'margin:0.15rem;">{n}</span>' for n in chunk
-                )
-                rows_html += f'<div style="display:flex;gap:0.3rem;margin-bottom:0.3rem;">{nums}</div>'
-            st.markdown(f'''
-            <div style="background:#1e293b;border:1px solid #334155;border-radius:0.75rem;padding:1rem;margin-top:1rem;">
-                <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
-                    <span style="font-size:2rem;font-weight:bold;color:#fbbf24;">{sel_num}</span>
-                    <span style="color:#94a3b8;font-size:0.95rem;">Números alrededor · <strong style="color:#f1f5f9;">{len(numeros)}</strong></span>
-                </div>
-                {rows_html}
-            </div>
-            ''', unsafe_allow_html=True)
+    for i, row in enumerate(matriz_actual):
+        _rows_html += f'<tr><td style="text-align:center;color:#64748b;font-size:0.65rem;">{i+1}</td>'
+        for j, val in enumerate(row):
+            if val == 0:
+                _rows_html += '<td style="background:#0f172a;color:#475569;padding:6px 2px;text-align:center;border-radius:4px;font-size:0.85rem;"></td>'
+            else:
+                _cls = "mc-cell"
+                if val == _sel:
+                    _cls += " mc-sel"
+                if val in set_ambos:
+                    _cls += " mc-ambos"
+                elif val in set_calientes:
+                    _cls += " mc-caliente"
+                elif val in set_posibles:
+                    _cls += " mc-posible"
+                _rows_html += f'<td class="{_cls}" data-r="{i}" data-c="{j}" data-val="{val}">{val}</td>'
+        _rows_html += '</tr>'
+
+    _matriz_json = _json.dumps(matriz_actual)
+    _calientes_json = _json.dumps(list(set_calientes))
+    _posibles_json = _json.dumps(list(set_posibles))
+    _api_url_json = _json.dumps(API_URL)
+
+    matrix_html = f"""<div style="overflow-x:auto;">
+<style>
+  #mc-app {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; }}
+  #mc-app table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
+  #mc-app td {{ width: 9%; aspect-ratio: 1 / 1; text-align: center; border-radius: 6px; font-weight: bold; font-size: clamp(0.65rem, 2vw, 0.95rem); cursor: default; vertical-align: middle; }}
+  #mc-app tr td:first-child {{ width: 1.5rem; aspect-ratio: auto; font-size: 0.6rem; color: #64748b; background: transparent !important; }}
+  .mc-cell {{ background: #1e293b; color: white; cursor: pointer !important; transition: opacity 0.15s, transform 0.1s; }}
+  .mc-cell:hover {{ opacity: 0.8; transform: scale(1.06); }}
+  .mc-sel {{ background: linear-gradient(135deg,#3b82f6,#8b5cf6) !important; box-shadow: 0 0 8px rgba(59,130,246,0.5); }}
+  .mc-caliente {{ background: #ef4444 !important; }}
+  .mc-posible {{ background: #3b82f6 !important; }}
+  .mc-ambos {{ background: #fbbf24 !important; color: #0f172a !important; }}
+  .mc-empty {{ background: #0f172a; color: #475569; }}
+  #mc-card {{ background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1rem; margin-top: 1rem; display: none; }}
+  #mc-card .mc-num {{ display: inline-flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg,#3b82f6,#8b5cf6); color: white; font-weight: bold;
+    font-size: clamp(0.8rem, 1.5vw, 0.95rem); width: 2.2rem; height: 2.2rem; border-radius: 0.4rem; margin: 0.15rem; }}
+  #mc-card .mc-row {{ display: flex; gap: 0.3rem; margin-bottom: 0.3rem; flex-wrap: wrap; }}
+  .mc-spinner {{ display: inline-block; width: 1rem; height: 1rem; border: 2px solid #334155; border-top-color: #fbbf24; border-radius: 50%; animation: mc-spin 0.6s linear infinite; }}
+  @keyframes mc-spin {{ to {{ transform: rotate(360deg); }} }}
+</style>
+<div id="mc-app">
+<table>{_rows_html}</table>
+<div id="mc-card">
+  <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+    <span id="mc-card-num" style="font-size:2rem;font-weight:bold;color:#fbbf24;"></span>
+    <span id="mc-card-label" style="color:#94a3b8;font-size:0.95rem;"></span>
+  </div>
+  <div id="mc-card-body"></div>
+</div>
+<div id="mc-error" style="color:#ef4444;margin-top:0.5rem;display:none;"></div>
+</div>
+<script>
+(function() {{
+  const MATRIZ = {_matriz_json};
+  const CALIENTES = new Set({_calientes_json});
+  const POSIBLES = new Set({_posibles_json});
+  const API = {_api_url_json};
+  const selVal = {_json.dumps(_sel)};
+
+  function highlightCell(el) {{
+    document.querySelectorAll('.mc-sel').forEach(c => c.classList.remove('mc-sel'));
+    if (el) el.classList.add('mc-sel');
+  }}
+
+  function showError(msg) {{
+    const err = document.getElementById('mc-error');
+    err.textContent = msg;
+    err.style.display = 'block';
+  }}
+
+  function showCard(num, total, numeros) {{
+    const card = document.getElementById('mc-card');
+    document.getElementById('mc-card-num').textContent = num;
+    document.getElementById('mc-card-label').innerHTML = 'Números alrededor · <strong style="color:#f1f5f9;">' + total + '</strong>';
+    const body = document.getElementById('mc-card-body');
+    body.innerHTML = '';
+    for (let i = 0; i < numeros.length; i += 10) {{
+      const row = document.createElement('div');
+      row.className = 'mc-row';
+      const chunk = numeros.slice(i, i + 10);
+      chunk.forEach(n => {{
+        const span = document.createElement('span');
+        span.className = 'mc-num';
+        span.textContent = n;
+        row.appendChild(span);
+      }});
+      body.appendChild(row);
+    }}
+    card.style.display = 'block';
+    document.getElementById('mc-error').style.display = 'none';
+  }}
+
+  function clickCell(el) {{
+    const r = parseInt(el.dataset.r);
+    const c = parseInt(el.dataset.c);
+    const val = parseInt(el.dataset.val);
+    if (!val) return;
+    highlightCell(el);
+    const card = document.getElementById('mc-card');
+    card.style.display = 'none';
+    document.getElementById('mc-error').style.display = 'none';
+    const body = document.getElementById('mc-card-body');
+    body.innerHTML = '<div class="mc-spinner"></div> <span style="color:#94a3b8;margin-left:0.5rem;">Cargando...</span>';
+    card.style.display = 'block';
+    try {{
+      Streamlit.setComponentValue(JSON.stringify({{selected: val}}));
+    }} catch(e) {{}}
+    fetch(API + '/api/matriz/alrededor', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{numero: val, tipo_matriz: '{tipo_matriz}'}})
+    }})
+    .then(r => {{
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }})
+    .then(data => showCard(val, data.total, data.numeros))
+    .catch(err => {{
+      body.innerHTML = '';
+      showError('Error al cargar: ' + err.message);
+    }});
+  }}
+
+  document.querySelectorAll('.mc-cell').forEach(el => {{
+    el.addEventListener('click', function() {{ clickCell(this); }});
+  }});
+
+  if (selVal) {{
+    const el = document.querySelector('.mc-cell[data-val="' + selVal + '"]');
+    if (el) {{
+      highlightCell(el);
+      fetch(API + '/api/matriz/alrededor', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{numero: selVal, tipo_matriz: '{tipo_matriz}'}})
+      }})
+      .then(r => r.json())
+      .then(data => showCard(selVal, data.total, data.numeros))
+      .catch(err => showError('Error: ' + err.message));
+    }}
+  }}
+}})();
+</script>
+</div>"""
+
+    comp_val = st.components.v1.html(matrix_html, height=620, scrolling=True)
+    if comp_val:
+        try:
+            parsed = _json.loads(comp_val)
+            if "selected" in parsed:
+                st.session_state.matriz_sel = parsed["selected"]
+        except (ValueError, TypeError):
+            pass
 
     st.markdown("""
     <div style="display:flex;gap:1.5rem;margin-top:1rem;flex-wrap:wrap;">
@@ -238,6 +341,8 @@ with tabs[2]:
             "tipo_matriz": tipo_matriz,
             "calientes": calientes,
             "posibles": posibles,
+            "juego": juego_cal,
+            "sorteo": sorteo_cal,
         })
         if resp:
             m1, m2, m3, m4 = st.columns(4)
@@ -270,11 +375,34 @@ with tabs[2]:
                 st.info("No hay números que sean calientes y posibles a la vez.")
             st.markdown('</div>', unsafe_allow_html=True)
 
-            st.markdown(f'<div class="card"><h4>🟢 Discriminante (Alrededor - Calientes - Posibles) ({resp["total_discriminante"]})</h4>', unsafe_allow_html=True)
+            st.markdown(f'<div class="card"><h4>🟢 Discriminante ({resp["total_discriminante"]}) · <span style="color:#94a3b8;font-size:0.85rem;">Alrededor − Calientes − Posibles</span></h4>', unsafe_allow_html=True)
             if resp["discriminante"]:
                 numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["discriminante"])
                 st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
-                st.markdown(f'<p style="color:#22c55e;font-size:0.85rem;">💡 Recomendación: Estos números están en la matriz pero NO son calientes ni posibles. Podrían ser su mejor oportunidad.</p>', unsafe_allow_html=True)
+
+                scored = resp.get("discriminante_scored", [])
+                if scored:
+                    st.markdown('<h4 style="color:#fbbf24;margin-top:1rem;">🏆 Top Reducido por Score Estadístico</h4>', unsafe_allow_html=True)
+                    st.markdown(
+                        '<p style="color:#94a3b8;font-size:0.85rem;">'
+                        'Combinando frecuencia (90 días), atraso y probabilidad ML. '
+                        'Se eliminan números sin frecuencia y >365 días sin salir.</p>',
+                        unsafe_allow_html=True,
+                    )
+                    for i, s in enumerate(scored):
+                        bar_w = max(int(s["score"] * 100), 5)
+                        st.markdown(
+                            f'<div style="display:flex;align-items:center;gap:0.75rem;padding:0.3rem 0;border-bottom:1px solid #334155;">'
+                            f'<span style="color:#64748b;min-width:1.5rem;">#{i+1}</span>'
+                            f'<span style="background:#fbbf24;color:#0f172a;font-weight:bold;border-radius:0.3rem;padding:0.1rem 0.5rem;min-width:2.5rem;text-align:center;">{s["numero"]:02d}</span>'
+                            f'<div style="flex:1;background:#334155;height:0.5rem;border-radius:0.25rem;">'
+                            f'<div style="background:linear-gradient(90deg,#22c55e,#fbbf24);width:{bar_w}%;height:100%;border-radius:0.25rem;"></div></div>'
+                            f'<span style="color:#94a3b8;font-size:0.8rem;min-width:3rem;">{s["frecuencia"]}×</span>'
+                            f'<span style="color:#94a3b8;font-size:0.8rem;min-width:3rem;">{s["dias_sin_salir"]}d</span>'
+                            f'<span style="color:#22c55e;font-size:0.8rem;min-width:2.5rem;">{s["probabilidad_ml"]:.1%}</span>'
+                            f'</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<p style="color:#22c55e;font-size:0.85rem;margin-top:0.5rem;">💡 Recomendación: Estos números están en la matriz pero NO son calientes ni posibles. Podrían ser su mejor oportunidad.</p>', unsafe_allow_html=True)
             else:
                 st.info("No hay números discriminantes.")
             st.markdown('</div>', unsafe_allow_html=True)
@@ -284,56 +412,47 @@ with tabs[2]:
 with tabs[3]:
     st.markdown(f'<div class="card"><h3>📖 Charada Enriquecida</h3>', unsafe_allow_html=True)
 
-    col_c1, col_c2 = st.columns([1, 2])
-    with col_c1:
-        num_buscar = st.number_input("Buscar por número (1-100)", min_value=1, max_value=100, value=1, key="charada_search")
-    with col_c2:
-        texto_buscar = st.text_input("Buscar por palabra o significado", placeholder="Ej: perro, amor, río... (Enter para buscar)", key="charada_text")
+    query = st.text_input("🔍 Buscar por número (1-100) o palabra clave", placeholder="Ej: 15, perro, serpiente, río...", key="charada_unico")
 
     todas = api_get("/api/charada/enriquecida")
 
-    texto_lower = texto_buscar.strip().lower() if texto_buscar.strip() else ""
+    q = query.strip()
+    es_numero = q.isdigit() and 1 <= int(q) <= 100
 
-    if texto_lower:
-        filtered = []
+    if es_numero:
+        n = int(q)
+        entry = next((e for e in (todas or []) if e["numero"] == n), None)
+        if entry:
+            st.markdown(f'<h2 style="color:#fbbf24;font-size:2.5rem;text-align:center;">{entry["numero"]:02d}</h2>', unsafe_allow_html=True)
+            st.markdown(f'<p style="text-align:center;color:#94a3b8;font-size:1.1rem;">Categoría: <strong style="color:#22c55e;">{entry["categoria"].title()}</strong></p>', unsafe_allow_html=True)
+            st.markdown(f'<p style="text-align:center;color:#94a3b8;font-size:0.9rem;">Palabras clave: {", ".join(entry["palabras_clave"])}</p>', unsafe_allow_html=True)
+            st.markdown('<h4 style="color:#f1f5f9;">Significados <span style="color:#94a3b8;font-weight:normal;font-size:0.9rem;">(' + str(len(entry["significados"])) + ')</span></h4>', unsafe_allow_html=True)
+            sigs_html = '<div class="sig-flex">'
+            for sig in entry["significados"]:
+                sigs_html += f'<span>{sig}</span>'
+            sigs_html += '</div>'
+            st.markdown(sigs_html, unsafe_allow_html=True)
+    elif q:
+        q_lower = q.lower()
+        filtered = [e for e in (todas or []) if q_lower in " ".join(e["significados"]).lower() or q_lower in str(e["numero"])]
+        if filtered:
+            st.markdown(f'<p style="color:#94a3b8;margin-bottom:0.5rem;">{len(filtered)} números encontrados con "<strong style="color:#fbbf24;">{q}</strong>"</p>', unsafe_allow_html=True)
+            nums_html = '<div class="grid-num">'
+            for e in filtered:
+                nums_html += f'<a href="?charada_unico={e["numero"]}" style="text-decoration:none;"><span class="result-number" title="{e["significados"][0]}">{e["numero"]:02d}</span></a>'
+            nums_html += '</div>'
+            st.markdown(nums_html, unsafe_allow_html=True)
+            with st.expander("📖 Ver detalles por número"):
+                for e in filtered[:20]:
+                    st.markdown(f'<div style="background:#334155;padding:0.5rem 1rem;border-radius:0.5rem;margin:0.25rem 0;border-left:3px solid #fbbf24;">'
+                               f'<strong style="color:#fbbf24;font-size:1.1rem;">{e["numero"]:02d}</strong> → '
+                               f'<span style="color:#e2e8f0;">{e["significados"][0]}</span>'
+                               f' <span style="color:#64748b;font-size:0.85rem;">({e["categoria"]})</span></div>', unsafe_allow_html=True)
+        else:
+            st.warning(f"No se encontraron números con la palabra '{q}'.")
+    else:
         if todas:
-            for e in todas:
-                sigs_text = " ".join(e["significados"]).lower()
-                if texto_lower in sigs_text or texto_lower in str(e["numero"]):
-                    filtered.append(e)
-        charada_data = filtered
-    elif num_buscar and todas:
-        charada_data = [e for e in todas if e["numero"] == num_buscar]
-    else:
-        charada_data = todas
-
-    if charada_data and len(charada_data) > 0:
-        entry = charada_data[0]
-        st.markdown(f'<h2 style="color:#fbbf24;font-size:2.5rem;text-align:center;">{entry["numero"]:02d}</h2>', unsafe_allow_html=True)
-        st.markdown(f'<p style="text-align:center;color:#94a3b8;font-size:1.1rem;">Categoría: <strong style="color:#22c55e;">{entry["categoria"].title()}</strong></p>', unsafe_allow_html=True)
-        st.markdown(f'<p style="text-align:center;color:#94a3b8;font-size:0.9rem;">Palabras clave: {", ".join(entry["palabras_clave"])}</p>', unsafe_allow_html=True)
-
-        st.markdown('<h4 style="color:#f1f5f9;">Significados:</h4><div class="charada-scroll">', unsafe_allow_html=True)
-        for sig in entry["significados"]:
-            highlighted = sig
-            if texto_lower:
-                highlighted = re_mod.sub(f'(?i)({re_mod.escape(texto_lower)})', r'<mark style="background:#fbbf24;color:#0f172a;padding:0.1rem 0.3rem;border-radius:0.2rem;">\1</mark>', sig)
-            st.markdown(f'<p style="color:#94a3b8;padding-left:1rem;">• {highlighted}</p>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        if len(charada_data) > 1:
-            st.markdown("<hr>", unsafe_allow_html=True)
-            st.markdown('<h4 style="color:#f1f5f9;">Más resultados:</h4>', unsafe_allow_html=True)
-            for e in charada_data[1:6]:
-                st.markdown(f'<div style="background:#334155;padding:0.5rem 1rem;border-radius:0.5rem;margin:0.25rem 0;">'
-                           f'<span style="color:#fbbf24;font-weight:bold;font-size:1.2rem;">{e["numero"]:02d}</span>'
-                           f' → <span style="color:#f1f5f9;">{e["significados"][0]}</span>'
-                           f' <span style="color:#64748b;font-size:0.85rem;">({e["categoria"]})</span></div>', unsafe_allow_html=True)
-    else:
-        if texto_buscar.strip() or num_buscar:
-            st.warning(f"No se encontraron resultados.")
-        elif todas:
-            st.info("Selecciona un número o escribe una palabra para buscar.")
+            st.info("Escribe un número (1-100) o una palabra para buscar en la Charada.")
 
     st.markdown("---")
     st.markdown('<h4 style="color:#f1f5f9;">📋 Todas las Categorías</h4>', unsafe_allow_html=True)

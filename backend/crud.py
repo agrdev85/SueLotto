@@ -76,6 +76,15 @@ def get_rango_fechas(db: Session, juego: str):
     return result.min_fecha, result.max_fecha
 
 
+def _extraer_pares(r):
+    """Extrae pares (corridos) de un resultado: n2-n3 (Pick 3/4) y n3-n4 (Pick 4)."""
+    pares = []
+    pares.append(r.n2 * 10 + r.n3)
+    if r.n4 is not None:
+        pares.append(r.n3 * 10 + r.n4)
+    return pares
+
+
 def get_frecuencias(db: Session, juego: str, sorteo: Optional[str] = None, dias: int = 30):
     desde = date.today() - timedelta(days=dias)
     query = db.query(Resultado).filter(
@@ -88,17 +97,13 @@ def get_frecuencias(db: Session, juego: str, sorteo: Optional[str] = None, dias:
     resultados = query.all()
 
     conteos = {}
-    total = 0
     for r in resultados:
-        for n in [r.n1, r.n2, r.n3]:
-            conteos[n] = conteos.get(n, 0) + 1
-            total += 1
-        if r.n4 is not None:
-            conteos[r.n4] = conteos.get(r.n4, 0) + 1
-            total += 1
+        for par in _extraer_pares(r):
+            conteos[par] = conteos.get(par, 0) + 1
 
+    total = sum(conteos.values()) if conteos else 1
     frecuencias = [
-        {"numero": n, "frecuencia": f, "porcentaje": round(f / total * 100, 1) if total else 0}
+        {"numero": n, "frecuencia": f, "porcentaje": round(f / total * 100, 1)}
         for n, f in sorted(conteos.items(), key=lambda x: x[1], reverse=True)
     ]
     return frecuencias
@@ -113,19 +118,15 @@ def get_atrasados(db: Session, juego: str, sorteo: Optional[str] = None):
 
     ultima_fecha_por_numero = {}
     for r in resultados:
-        for n in [r.n1, r.n2, r.n3]:
-            if n not in ultima_fecha_por_numero or r.fecha > ultima_fecha_por_numero[n]:
-                ultima_fecha_por_numero[n] = r.fecha
-        if r.n4 is not None:
-            if r.n4 not in ultima_fecha_por_numero or r.fecha > ultima_fecha_por_numero[r.n4]:
-                ultima_fecha_por_numero[r.n4] = r.fecha
+        for par in _extraer_pares(r):
+            if par not in ultima_fecha_por_numero or r.fecha > ultima_fecha_por_numero[par]:
+                ultima_fecha_por_numero[par] = r.fecha
 
     rango = get_rango_fechas(db, juego)
     hoy = rango[1] if rango[1] else date.today()
 
-    max_num = 9
     atrasados = []
-    for n in range(0, max_num + 1):
+    for n in range(0, 100):
         ultima = ultima_fecha_por_numero.get(n)
         if ultima:
             dias = (hoy - ultima).days
@@ -197,6 +198,11 @@ def get_posibles_salir(db: Session, fecha: Optional[date] = None, sorteo: Option
             "numeros": nums,
         })
     return parsed
+
+
+def get_charada_frecuencias(db: Session, juego: str, sorteo: Optional[str] = None, dias: int = 90):
+    """Analiza resultados como números combinados de 2 dígitos para mapear a Charada (0-99)."""
+    return get_frecuencias(db, juego, sorteo, dias)
 
 
 def get_charada_enriquecida(db: Session, numero: Optional[int] = None):

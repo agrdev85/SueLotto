@@ -87,9 +87,18 @@ col_btn, col_note = st.columns([1, 3])
 with col_btn:
     analizar = st.button("🤖 Analizar con IA", type="primary", use_container_width=True)
 with col_note:
+    ia_status = api_get("/api/ia/status")
+    if ia_status:
+        gemini_ok = ia_status.get("gemini_disponible", False)
+        if gemini_ok:
+            badge = '<span style="background:#22c55e;color:white;padding:0.1rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;">Gemini activo</span>'
+        else:
+            badge = '<span style="background:#f59e0b;color:white;padding:0.1rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;">Análisis local</span>'
+    else:
+        badge = '<span style="background:#ef4444;color:white;padding:0.1rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;">Sin conexión</span>'
     st.markdown(
-        '<span style="color:#64748b;font-size:0.85rem;">La IA analizará la adivinanza y tu interpretación '
-        'para sugerir números basados en la Charada Cubana.</span>',
+        f'<span style="color:#64748b;font-size:0.85rem;">{badge} La IA analizará la adivinanza y tu interpretación '
+        'para sugerir números basados en la tabla de sueños.</span>',
         unsafe_allow_html=True,
     )
 st.markdown("</div>", unsafe_allow_html=True)
@@ -139,7 +148,7 @@ if analizar:
             
             st.markdown("</div>", unsafe_allow_html=True)
         else:
-            st.error("No se pudo obtener respuesta de la IA. Verifica tu conexión o la API key de Gemini.")
+            st.error("⏳ Cargando datos desde la IA...")
 
 st.markdown("""
 <div style="text-align:center;padding:2rem;">

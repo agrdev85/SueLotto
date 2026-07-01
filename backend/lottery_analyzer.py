@@ -164,7 +164,7 @@ def _fallback_prediction(frecuencias: list, atrasados: list):
     max_atraso = max(atraso_map.values()) if atraso_map else 1
 
     predicciones = []
-    for num in range(10):
+    for num in range(100):
         freq_score = freq_map.get(num, 0) / max_freq
         atraso_score = atraso_map.get(num, 0) / max_atraso
         prob = 0.5 * freq_score + 0.5 * atraso_score
@@ -204,16 +204,6 @@ def obtener_posibles_salir(
     frecuencias = get_frecuencias(db, juego, sorteo, 90)
     atrasados = get_atrasados(db, juego, sorteo)
 
-    min_count = db.query(Resultado).filter(
-        Resultado.juego == juego,
-        Resultado.fecha >= date.today() - timedelta(days=365),
-    ).count()
-
-    if use_ml and min_count >= 60:
-        ml_preds = generar_predicciones(db, juego, sorteo)
-    else:
-        ml_preds = _fallback_prediction(frecuencias, atrasados)
-
     freq_map = {f["numero"]: f["frecuencia"] for f in frecuencias}
     atraso_map = {a["numero"]: a["dias_sin_salir"] for a in atrasados}
 
@@ -221,15 +211,13 @@ def obtener_posibles_salir(
     max_atraso = max(atraso_map.values()) if atraso_map else 1
 
     scores = {}
-    for pred in ml_preds:
-        num = pred["numero"]
-        ml_score = pred["probabilidad"]
+    for num in range(100):
         freq_score = freq_map.get(num, 0) / max_freq
         atraso_score = atraso_map.get(num, 0) / max_atraso
-        scores[num] = 0.50 * ml_score + 0.25 * freq_score + 0.25 * atraso_score
+        scores[num] = 0.6 * freq_score + 0.4 * atraso_score
 
     sorted_nums = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    numeros = [n for n, s in sorted_nums if s > 0]
+    numeros = [n for n, s in sorted_nums[:30] if s > 0]
 
     return {
         "fecha": fecha.isoformat() if isinstance(fecha, date) else fecha,

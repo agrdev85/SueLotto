@@ -60,13 +60,22 @@ with st.container():
                                   max_value=date.today(), key="hist_fecha_fin")
     
     st.session_state.setdefault("hist_page", 1)
+    st.session_state.setdefault("hist_page_size", 100)
+
+    col_page_opts = st.columns([1, 1])
+    with col_page_opts[0]:
+        page_size_opt = st.selectbox("Registros por página", [25, 50, 100, 200, 500], index=2, key="hist_page_size_sel")
+        st.session_state["hist_page_size"] = page_size_opt
+    with col_page_opts[1]:
+        st.markdown('<div style="height:1.5rem;"></div>', unsafe_allow_html=True)
 
     buscar = st.button("🔍 Buscar", type="primary", use_container_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-PAGE_SIZE = 1000
+PAGE_SIZE_DEFAULT = 100
 
 def load_page(page):
+    sz = st.session_state.get("hist_page_size", PAGE_SIZE_DEFAULT)
     params = {
         "juego": juego_param,
         "sorteo": sorteo_param,
@@ -74,7 +83,7 @@ def load_page(page):
         "fecha_fin": fecha_fin.isoformat(),
         "contienen_digitos": contienen_param,
         "page": page,
-        "size": PAGE_SIZE,
+        "size": sz,
     }
     params = {k: v for k, v in params.items() if v is not None}
     return api_get("/api/resultados/historicos", params)
@@ -122,34 +131,37 @@ if buscar or "hist_resultados" in st.session_state:
             },
         )
 
-        col_nav1, col_nav2, col_nav3, col_nav4 = st.columns([1, 2, 2, 1])
-        total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+        sz = st.session_state.get("hist_page_size", PAGE_SIZE_DEFAULT)
+        total_pages = max(1, (total + sz - 1) // sz)
+
+        col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
         with col_nav1:
-            if page > 1:
-                if st.button("⬅ Anterior", use_container_width=True):
-                    st.session_state["hist_page"] = page - 1
-                    new_result = load_page(page - 1)
-                    if new_result:
-                        st.session_state["hist_resultados"] = new_result
-                    st.rerun()
-        with col_nav2:
-            st.markdown(f'<p style="text-align:center;color:#94a3b8;margin-top:0.5rem;">Página {page} de {total_pages}</p>', unsafe_allow_html=True)
-        with col_nav3:
-            page_input = st.number_input("Ir a página", min_value=1, max_value=total_pages, value=page, label_visibility="collapsed", key="hist_goto")
-            if page_input != page:
-                st.session_state["hist_page"] = page_input
-                new_result = load_page(page_input)
+            if page > 1 and st.button("⬅ Anterior", key="btn_prev", use_container_width=True):
+                st.session_state["hist_page"] = page - 1
+                if "hist_goto" in st.session_state:
+                    del st.session_state["hist_goto"]
+                new_result = load_page(page - 1)
                 if new_result:
                     st.session_state["hist_resultados"] = new_result
                 st.rerun()
-        with col_nav4:
-            if page < total_pages:
-                if st.button("Siguiente ➡", use_container_width=True):
-                    st.session_state["hist_page"] = page + 1
-                    new_result = load_page(page + 1)
-                    if new_result:
-                        st.session_state["hist_resultados"] = new_result
-                    st.rerun()
+        with col_nav2:
+            st.markdown(f'<p style="text-align:center;color:#94a3b8;margin-top:0.5rem;">Página <strong style="color:#f1f5f9;">{page}</strong> de {total_pages}</p>', unsafe_allow_html=True)
+            goto_page = st.number_input("Ir a página", min_value=1, max_value=total_pages, value=page, key="hist_goto", label_visibility="collapsed")
+            if goto_page != page:
+                st.session_state["hist_page"] = goto_page
+                new_result = load_page(goto_page)
+                if new_result:
+                    st.session_state["hist_resultados"] = new_result
+                st.rerun()
+        with col_nav3:
+            if page < total_pages and st.button("Siguiente ➡", key="btn_next", use_container_width=True):
+                st.session_state["hist_page"] = page + 1
+                if "hist_goto" in st.session_state:
+                    del st.session_state["hist_goto"]
+                new_result = load_page(page + 1)
+                if new_result:
+                    st.session_state["hist_resultados"] = new_result
+                st.rerun()
 
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -165,40 +177,42 @@ if buscar or "hist_resultados" in st.session_state:
         st.markdown('<div class="card"><h3>📊 Resumen Rápido</h3>', unsafe_allow_html=True)
         col_s1, col_s2, col_s3 = st.columns(3)
 
-        nums_list = []
+        pair_counter = {}
         for r in data:
-            nums_list.extend([r["n1"], r["n2"], r["n3"]])
+            par = r["n2"] * 10 + r["n3"]
+            pair_counter[par] = pair_counter.get(par, 0) + 1
             if r.get("n4") is not None:
-                nums_list.append(r["n4"])
-
-        from collections import Counter
-        counter = Counter(nums_list)
+                par2 = r["n3"] * 10 + r["n4"]
+                pair_counter[par2] = pair_counter.get(par2, 0) + 1
 
         with col_s1:
             st.metric("Total sorteos", len(data))
         with col_s2:
-            if counter:
-                top_num, top_count = counter.most_common(1)[0]
-                st.metric("Número más frecuente", top_num, f"{top_count} veces")
+            if pair_counter:
+                top_pair, top_count = max(pair_counter.items(), key=lambda x: x[1])
+                st.metric("Par más frecuente", f"{top_pair:02d}", f"{top_count} veces")
         with col_s3:
-            if counter:
-                st.metric("Números distintos", len(counter))
+            if pair_counter:
+                st.metric("Pares distintos", len(pair_counter))
 
-        st.markdown('<h4 style="color:#94a3b8;">Distribución de números en este período</h4>', unsafe_allow_html=True)
+        st.markdown('<h4 style="color:#94a3b8;">Distribución de pares (corridos) en este período</h4>', unsafe_allow_html=True)
 
-        freq_cols = st.columns(10)
-        for i in range(10):
-            count = counter.get(i, 0)
-            max_count = max(counter.values()) if counter else 1
-            height = max(20, (count / max_count) * 100)
-            color = "#22c55e" if count > (len(data) * 0.15) else ("#fbbf24" if count > (len(data) * 0.1) else "#3b82f6")
-            with freq_cols[i]:
-                st.markdown(
-                    f'<div style="text-align:center;">'
-                    f'<div style="background:{color};height:{height}px;width:100%;border-radius:0.3rem;min-height:20px;"></div>'
-                    f'<div style="color:#f1f5f9;font-weight:bold;margin-top:0.3rem;">{i}</div>'
-                    f'<div style="color:#94a3b8;font-size:0.8rem;">{count}</div>'
-                    f'</div>', unsafe_allow_html=True)
+        top_pairs = sorted(pair_counter.items(), key=lambda x: x[1], reverse=True)[:20]
+        if top_pairs:
+            pair_cols = st.columns(min(10, len(top_pairs)))
+            for i, (par, count) in enumerate(top_pairs[:10]):
+                max_count = top_pairs[0][1] if top_pairs else 1
+                height = max(20, (count / max_count) * 100)
+                is_decena = par % 10 == 0
+                color = "#fbbf24" if is_decena else ("#ef4444" if count > max_count * 0.7 else "#3b82f6")
+                with pair_cols[i]:
+                    st.markdown(
+                        f'<div style="text-align:center;">'
+                        f'<div style="background:{color};height:{height}px;width:100%;border-radius:0.3rem;min-height:20px;"></div>'
+                        f'<div style="color:#f1f5f9;font-weight:bold;margin-top:0.3rem;">{par:02d}</div>'
+                        f'<div style="color:#94a3b8;font-size:0.8rem;">{count}</div>'
+                        f'</div>', unsafe_allow_html=True)
+            st.markdown(f'<p style="color:#64748b;font-size:0.8rem;">Mostrando top 10 de {len(top_pairs)} pares distintos. 🟡 Decenas completas · 🔴 Muy frecuente · 🔵 Frecuente</p>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.info("No se encontraron resultados con los filtros seleccionados.")

@@ -1,5 +1,9 @@
 import json
 import os
+from typing import Optional
+from sqlalchemy.orm import Session
+from datetime import date, timedelta
+from backend.crud import get_frecuencias, get_atrasados
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
@@ -76,11 +80,57 @@ def procesar_secuencia(secuencia: list[int], tipo_matriz: str = "nueva") -> list
     return resultado
 
 
+def _score_numbers(db: Session, juego: str, sorteo: Optional[str], numeros: list[int]) -> list[dict]:
+    """Score a list of numbers using frequency, recency, and ML predictions."""
+    frecuencias = get_frecuencias(db, juego, sorteo, 90)
+    atrasados = get_atrasados(db, juego, sorteo)
+
+    freq_map = {f["numero"]: f["frecuencia"] for f in frecuencias}
+    atraso_map = {a["numero"]: a["dias_sin_salir"] for a in atrasados}
+
+    max_freq = max(freq_map.values()) if freq_map else 1
+    max_atraso = max(atraso_map.values()) if atraso_map else 1
+
+    from backend.lottery_analyzer import generar_predicciones
+    ml_preds = generar_predicciones(db, juego, sorteo)
+    ml_map = {p["numero"]: p["probabilidad"] for p in ml_preds} if ml_preds else {}
+    max_ml = max(ml_map.values()) if ml_map else 1
+
+    scored = []
+    for n in numeros:
+        freq = freq_map.get(n, 0)
+        dias = atraso_map.get(n, 999)
+        ml_prob = ml_map.get(n, 0)
+
+        freq_score = freq / max_freq
+        atraso_score = dias / max_atraso
+        ml_score = ml_prob / max_ml if max_ml else 0
+
+        if freq == 0 and dias > 365:
+            continue
+
+        composite = 0.25 * freq_score + 0.35 * atraso_score + 0.40 * ml_score
+
+        scored.append({
+            "numero": n,
+            "score": round(composite, 4),
+            "frecuencia": freq,
+            "dias_sin_salir": dias,
+            "probabilidad_ml": round(ml_prob, 4),
+        })
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored[:15]
+
+
 def comparar_y_reducir(
     secuencia: list[int],
     tipo_matriz: str = "nueva",
     calientes: list[int] = None,
     posibles: list[int] = None,
+    db: Optional[Session] = None,
+    juego: Optional[str] = None,
+    sorteo: Optional[str] = None,
 ) -> dict:
     alrededor = procesar_secuencia(secuencia, tipo_matriz)
     calientes = calientes or []
@@ -96,7 +146,7 @@ def comparar_y_reducir(
     interseccion_ambos = sorted(set_alrededor & set_ambos, key=lambda x: alrededor.index(x))
     discriminante = sorted(set_alrededor - set_calientes - set_posibles, key=lambda x: alrededor.index(x))
 
-    return {
+    result = {
         "alrededor": alrededor,
         "calientes": calientes,
         "posibles": posibles,
@@ -104,9 +154,15 @@ def comparar_y_reducir(
         "interseccion_posibles": interseccion_posibles,
         "interseccion_ambos": interseccion_ambos,
         "discriminante": discriminante,
+        "discriminante_scored": [],
         "total_alrededor": len(alrededor),
         "total_interseccion_calientes": len(interseccion_calientes),
         "total_interseccion_posibles": len(interseccion_posibles),
         "total_interseccion_ambos": len(interseccion_ambos),
         "total_discriminante": len(discriminante),
     }
+
+    if db and juego and discriminante:
+        result["discriminante_scored"] = _score_numbers(db, juego, sorteo, discriminante)
+
+    return result
