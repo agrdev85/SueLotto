@@ -68,7 +68,7 @@ with col1:
         )
         fig.update_traces(marker_line_color="#334155", marker_line_width=1,
                           textposition="outside", textfont_color="#94a3b8")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     st.markdown('<h4 style="color:#94a3b8;margin-top:1rem;">Top 10 Pares más Frecuentes</h4>', unsafe_allow_html=True)
     if freqs and len(freqs) > 0:
@@ -103,7 +103,7 @@ with col2:
             )
             fig2.update_traces(marker_line_color="#334155", marker_line_width=1,
                                textposition="outside", textfont_color="#94a3b8")
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width='stretch')
 
     if atrasados:
         con_dias = [a for a in atrasados if a["dias_sin_salir"] < 900]
@@ -135,7 +135,7 @@ else:
     )
     fig3.update_traces(marker_line_color="#334155", marker_line_width=1,
                        textposition="outside", textfont_color="#fbbf24")
-    st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig3, width='stretch')
 
     st.markdown('<h4 style="color:#94a3b8;">Top 5 Predicciones</h4>', unsafe_allow_html=True)
     cols = st.columns(5)

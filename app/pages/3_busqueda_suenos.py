@@ -7,12 +7,34 @@ load_dotenv()
 API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Búsqueda de Sueños - SueñaLotto", page_icon="🌙", layout="wide")
-from app.auth_check import check_tier; _t = check_tier()
+
+# Inline tier check
+def _check_tier():
+    token = st.session_state.get("token")
+    if not token:
+        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p><p style="color:#64748b;font-size:0.85rem;">💎 Suscríbete a <strong style="color:#fbbf24;">Pro</strong> para acceder.</p></div>', unsafe_allow_html=True)
+        st.stop()
+        return {}
+    try:
+        r = httpx.get(f"{API_URL}/api/auth/tier", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if r.status_code != 200:
+            st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Error de autenticación</h2><p style="color:#94a3b8;">Vuelve a iniciar sesión.</p></div>', unsafe_allow_html=True)
+            st.stop()
+            return {}
+        return r.json()
+    except Exception:
+        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">No se pudo verificar suscripción</h2><p style="color:#94a3b8;">¿Está el backend encendido?</p></div>', unsafe_allow_html=True)
+        st.stop()
+        return {}
+
+_t = _check_tier()
 if _t.get("tier") not in ("pro", "lifetime"):
     st.stop()
 
 st.markdown("""
 <style>
+    .stAppDeployButton, .stMainMenu, #MainMenu, footer { display: none !important; visibility: hidden !important; }
+    header[data-testid="stHeader"] { background: rgba(15, 23, 42, 0.95) !important; backdrop-filter: blur(12px); border-bottom: 1px solid rgba(251, 191, 36, 0.15); }
     .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%); }
     .card { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; }
     .card h3 { color: #f1f5f9; }
@@ -57,7 +79,7 @@ with st.container():
 
     col_btn, col_info = st.columns([1, 3])
     with col_btn:
-        buscar = st.button("🔍 Buscar en Charada", type="primary", use_container_width=True)
+        buscar = st.button("🔍 Buscar en Charada", type="primary", width='stretch')
 
     with col_info:
         st.markdown(

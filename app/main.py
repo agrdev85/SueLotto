@@ -78,7 +78,12 @@ def api_get(path, params=None):
         r = httpx.get(f"{API}{path}", params=params, headers=headers, timeout=15)
         r.raise_for_status()
         return r.json()
-    except:
+    except httpx.HTTPStatusError as e:
+        detail = e.response.text[:300] if e.response.text else str(e)
+        st.caption(f"⚠️ {detail}")
+        return None
+    except Exception as e:
+        st.caption(f"⚠️ {path}: {e}")
         return None
 
 def api_post(path, json_data=None):
@@ -90,7 +95,12 @@ def api_post(path, json_data=None):
         r = httpx.post(f"{API}{path}", json=json_data or {}, headers=headers, timeout=15)
         r.raise_for_status()
         return r.json()
-    except:
+    except httpx.HTTPStatusError as e:
+        detail = e.response.text[:300] if e.response.text else str(e)
+        st.caption(f"⚠️ {detail}")
+        return None
+    except Exception as e:
+        st.caption(f"⚠️ {path}: {e}")
         return None
 
 st.session_state.setdefault("token", None)
@@ -163,7 +173,7 @@ if st.session_state.get("show_auth") and not st.session_state.get("user"):
             with st.form("login_form"):
                 u = st.text_input("Usuario", placeholder="Tu nombre de usuario", key="login_user")
                 p = st.text_input("Contraseña", type="password", placeholder="••••••••", key="login_pass")
-                if st.form_submit_button("Iniciar Sesión", type="primary", use_container_width=True):
+                if st.form_submit_button("Iniciar Sesión", type="primary", width='stretch'):
                     res = api_post("/api/auth/login", {"username": u, "password": p})
                     if res and "access_token" in res:
                         st.session_state["token"] = res["access_token"]
@@ -178,7 +188,7 @@ if st.session_state.get("show_auth") and not st.session_state.get("user"):
                 ru = st.text_input("Usuario", placeholder="Elige un nombre", key="reg_user")
                 re = st.text_input("Email", placeholder="tu@email.com", key="reg_email")
                 rp = st.text_input("Contraseña", type="password", placeholder="Mínimo 4 caracteres", key="reg_pass")
-                if st.form_submit_button("Crear Cuenta Gratis", type="primary", use_container_width=True):
+                if st.form_submit_button("Crear Cuenta Gratis", type="primary", width='stretch'):
                     res = api_post("/api/auth/register", {"username": ru, "email": re, "password": rp})
                     if res and "access_token" in res:
                         st.session_state["token"] = res["access_token"]
@@ -187,8 +197,7 @@ if st.session_state.get("show_auth") and not st.session_state.get("user"):
                         st.session_state["show_auth"] = False
                         st.rerun()
                     else:
-                        detail = "Error al registrar. Intenta con otros datos."
-                        st.error(detail)
+                        st.error("Error al registrar. Revisa los datos e intenta de nuevo.")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_b:
@@ -309,7 +318,7 @@ with col3:
             showlegend=False,
         )
         fig.update_traces(marker_line_color="#334155", marker_line_width=1, textposition="outside", textfont_color="#94a3b8", hovertemplate="%{x}<br>%{y} veces<extra></extra>")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         st.markdown('<div style="display:flex;gap:1rem;font-size:0.7rem;color:#64748b;"><span>🟡 Decenas</span><span>🔴 Muy frecuente</span><span>🔵 Frecuente</span></div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -337,7 +346,7 @@ with col4:
             showlegend=False,
         )
         fig2.update_traces(marker_line_color="#334155", marker_line_width=1, textposition="outside", textfont_color="#fbbf24", hovertemplate="%{x}<br>%{y:.1%}<extra></extra>")
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width='stretch')
     st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---")
@@ -400,7 +409,7 @@ if user:
             with bc3[3]:
                 b_candado = st.text_input("Candado", placeholder="Ej: 3-2-1")
 
-            if st.form_submit_button("💾 Guardar Jugada", type="primary", use_container_width=True):
+            if st.form_submit_button("💾 Guardar Jugada", type="primary", width='stretch'):
                 api_post("/api/bets", {
                     "fecha": b_fecha.isoformat(),
                     "turno": b_turno,
