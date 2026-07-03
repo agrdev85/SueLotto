@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from backend.models import Resultado
@@ -66,7 +67,10 @@ def _build_features(df, pos: str):
     return pd.DataFrame(features), np.array(targets)
 
 
-def generar_predicciones(db: Session, juego: str, sorteo: str = None, use_llm: bool = True):
+def generar_predicciones(db: Session, juego: Optional[str] = None, sorteo: str = None, use_llm: bool = True):
+    if not juego:
+        return _fallback_prediction([], [])
+
     min_count = db.query(Resultado).filter(
         Resultado.juego == juego,
         Resultado.fecha >= date.today() - timedelta(days=365),

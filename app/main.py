@@ -2,7 +2,7 @@ import streamlit as st
 import httpx
 import plotly.graph_objects as go
 import plotly.express as px
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import os
 import time
 from dotenv import load_dotenv
@@ -23,7 +23,39 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap');
     * { font-family: 'Inter', sans-serif; }
-    .stApp { background: linear-gradient(135deg, #0a0e1a 0%, #1a1040 30%, #0f172a 60%, #1a1040 100%); }
+
+    :root {
+        --bg-primary: #0a0e1a;
+        --bg-secondary: #0f172a;
+        --bg-card: rgba(30, 41, 59, 0.9);
+        --bg-card-hover: rgba(30, 41, 59, 0.95);
+        --border-color: rgba(51, 65, 85, 0.8);
+        --text-primary: #f1f5f9;
+        --text-secondary: #94a3b8;
+        --text-muted: #64748b;
+        --accent: #fbbf24;
+        --accent-secondary: #f59e0b;
+        --danger: #ef4444;
+        --success: #22c55e;
+        --info: #3b82f6;
+        --purple: #8b5cf6;
+        --card-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    .light-mode {
+        --bg-primary: #f8fafc;
+        --bg-secondary: #e2e8f0;
+        --bg-card: rgba(255, 255, 255, 0.95);
+        --bg-card-hover: rgba(255, 255, 255, 1);
+        --border-color: rgba(203, 213, 225, 0.8);
+        --text-primary: #0f172a;
+        --text-secondary: #475569;
+        --text-muted: #94a3b8;
+        --card-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+
+    .stApp { background: var(--bg-primary); }
+    .light-mode .stApp { background: var(--bg-primary); }
     .stAppDeployButton, .stMainMenu, #MainMenu, footer { display: none !important; visibility: hidden !important; }
     header[data-testid="stHeader"] { background: rgba(15, 23, 42, 0.95) !important; backdrop-filter: blur(12px); border-bottom: 1px solid rgba(251, 191, 36, 0.15); padding: 0.3rem 1rem !important; }
     .app-header { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0.25rem 0; }
@@ -36,18 +68,13 @@ st.markdown("""
     .user-info { line-height: 1.2; }
     .user-name { color: #f1f5f9; font-size: 0.75rem; font-weight: 600; }
     .user-time { color: #64748b; font-size: 0.6rem; }
-    .btn-login { background: linear-gradient(135deg, #fbbf24, #f59e0b); border: none; color: #0f172a; font-weight: 700; font-size: 0.75rem; padding: 0.35rem 1rem; border-radius: 2rem; cursor: pointer; }
-    .card { background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 1rem; padding: 1.25rem; margin-bottom: 1rem; backdrop-filter: blur(8px); }
-    .card h3 { color: #f1f5f9; margin-bottom: 0.5rem; font-weight: 700; }
-    .result-number { display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; font-weight: 800; font-size: 1.3rem; width: 2.6rem; height: 2.6rem; border-radius: 0.5rem; margin: 0 0.2rem; box-shadow: 0 2px 8px rgba(59,130,246,0.3); }
-    .result-number-pick4 { width: 2.2rem; height: 2.2rem; font-size: 1.1rem; }
-    .glow-text { text-shadow: 0 0 20px rgba(251,191,36,0.3); }
+    .card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem; margin-bottom: 1rem; backdrop-filter: blur(8px); box-shadow: var(--card-shadow); }
+    .card h3 { color: var(--text-primary); margin-bottom: 0.5rem; font-weight: 700; }
     .hero { text-align: center; padding: 0.5rem 0 1rem; }
     .hero h1 { font-size: 2.8rem; font-weight: 900; background: linear-gradient(135deg, #fbbf24, #ef4444, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 0.25rem; letter-spacing: -1px; }
-    .hero p { color: #64748b; font-size: 0.9rem; max-width: 600px; margin: 0 auto; }
+    .hero p { color: var(--text-secondary); font-size: 0.9rem; max-width: 600px; margin: 0 auto; }
     .sparkle { background: radial-gradient(circle at 50% 0%, rgba(251,191,36,0.08), transparent 70%); }
     .auth-container { max-width: 420px; margin: 2rem auto; }
-    .auth-container .card { padding: 2rem; }
     .tier-card { background: linear-gradient(135deg, rgba(30,41,59,0.9), rgba(15,23,42,0.9)); border: 1px solid rgba(51,65,85,0.8); border-radius: 1rem; padding: 1.5rem; text-align: center; height: 100%; }
     .tier-card.pro { border-color: #fbbf24; box-shadow: 0 0 20px rgba(251,191,36,0.1); }
     .tier-card.lifetime { border-color: #8b5cf6; box-shadow: 0 0 20px rgba(139,92,246,0.1); }
@@ -56,14 +83,57 @@ st.markdown("""
     .feature-yes { color: #22c55e; }
     .feature-no { color: #64748b; }
     .stTabs [data-baseweb="tab-list"] { gap: 0.5rem; background: rgba(30,41,59,0.5); border-radius: 0.75rem; padding: 0.25rem; }
-    .stTabs [data-baseweb="tab"] { background: transparent; border-radius: 0.5rem; padding: 0.4rem 1.2rem; color: #94a3b8; font-size: 0.85rem; border: none; }
+    .stTabs [data-baseweb="tab"] { background: transparent; border-radius: 0.5rem; padding: 0.4rem 1.2rem; color: #94a3b8; font-size: 0.85rem; border: none; transition: all 0.2s; }
     .stTabs [aria-selected="true"] { background: #334155; color: #fbbf24; font-weight: 600; }
     div[data-testid="stForm"] { border: none; padding: 0; }
     .stTextInput>div>div>input { background: #1e293b !important; border: 1px solid #334155 !important; color: #f1f5f9 !important; border-radius: 0.5rem !important; }
     .stTextInput>div>div>input:focus { border-color: #fbbf24 !important; box-shadow: 0 0 0 2px rgba(251,191,36,0.2) !important; }
-    .bet-row { display: grid; grid-template-columns: 1fr 1.5fr 1fr 1fr 1fr 1fr 1fr 1fr auto; gap: 0.3rem; align-items: center; padding: 0.4rem 0; border-bottom: 1px solid #1e293b; font-size: 0.8rem; }
-    .bet-header { color: #64748b; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; }
-    .bet-value { color: #e2e8f0; }
+    .stNumberInput>div>div>input { background: #1e293b !important; border: 1px solid #334155 !important; color: #f1f5f9 !important; border-radius: 0.5rem !important; }
+    .stSelectbox>div>div>div { background: #1e293b !important; border: 1px solid #334155 !important; color: #f1f5f9 !important; border-radius: 0.5rem !important; }
+    .stDateInput>div>div>input { background: #1e293b !important; border: 1px solid #334155 !important; color: #f1f5f9 !important; border-radius: 0.5rem !important; }
+
+    /* ─── Sorteo Cards ─── */
+    .sorteo-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem; margin-bottom: 1rem; box-shadow: var(--card-shadow); transition: transform 0.2s, box-shadow 0.2s; animation: fadeSlideIn 0.5s ease-out both; }
+    .sorteo-card:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
+    .sorteo-card.media { border-left: 4px solid #f97316; }
+    .sorteo-card.tarde { border-left: 4px solid #3b82f6; }
+    .sorteo-card.noche { border-left: 4px solid #475569; }
+    .sorteo-card .horario-badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.75rem; border-radius: 2rem; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+    .sorteo-card .horario-badge.media { background: rgba(249,115,22,0.15); color: #f97316; border: 1px solid rgba(249,115,22,0.3); }
+    .sorteo-card .horario-badge.noche { background: rgba(100,116,139,0.15); color: #cbd5e1; border: 1px solid rgba(100,116,139,0.3); }
+    .sorteo-card .fecha-text { color: var(--text-muted); font-size: 0.75rem; }
+    .sorteo-card .fijo-number { font-size: 3rem; font-weight: 900; text-align: center; padding: 0.25rem 0; color: var(--text-primary); letter-spacing: 4px; line-height: 1; }
+    .sorteo-card .corridos-label { color: var(--text-muted); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 0.4rem; }
+    .sorteo-card .corridos-digits { display: flex; justify-content: center; gap: 0.5rem; }
+    .sorteo-card .corridos-digit { display: inline-flex; align-items: center; justify-content: center; width: 2.2rem; height: 2.2rem; font-weight: 800; font-size: 1rem; border-radius: 50%; }
+    .sorteo-card .corridos-digit.media { background: linear-gradient(135deg, #f97316, #ea580c); color: white; }
+    .sorteo-card .corridos-digit.noche { background: linear-gradient(135deg, #475569, #334155); color: white; border: 1px solid #64748b; }
+    .sorteo-card .social-bar { display: flex; gap: 0.75rem; margin-top: 0.75rem; padding-top: 0.65rem; border-top: 1px solid var(--border-color); }
+    .sorteo-card .social-btn { background: none; border: 1px solid var(--border-color); color: var(--text-muted); font-size: 0.7rem; padding: 0.25rem 0.65rem; border-radius: 2rem; cursor: pointer; transition: all 0.2s; }
+    .sorteo-card .social-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+
+    /* ─── List View ─── */
+    .sorteo-list-row { display: grid; grid-template-columns: 1fr 1.5fr 0.8fr 2fr 0.8fr; gap: 0.5rem; align-items: center; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; color: var(--text-primary); transition: background 0.2s; }
+    .sorteo-list-row:hover { background: rgba(59,130,246,0.05); }
+    .sorteo-list-row.header { color: var(--text-muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid var(--border-color); }
+    .sorteo-list-row .list-fijo { font-weight: 800; font-size: 1.1rem; color: var(--accent); }
+
+    /* ─── Fade animation ─── */
+    @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ─── Toggle buttons ─── */
+    .toggle-group { display: flex; gap: 0.3rem; background: rgba(30,41,59,0.5); border-radius: 0.5rem; padding: 0.2rem; width: fit-content; }
+    .toggle-btn { background: transparent; border: none; color: var(--text-muted); font-size: 0.8rem; padding: 0.35rem 0.8rem; border-radius: 0.4rem; cursor: pointer; transition: all 0.2s; }
+    .toggle-btn.active { background: #334155; color: var(--accent); font-weight: 600; }
+
+    /* ─── Bet cards ─── */
+    .bet-stat-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1rem; text-align: center; }
+    .bet-stat-card .stat-value { font-size: 1.6rem; font-weight: 800; color: var(--text-primary); }
+    .bet-stat-card .stat-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.2rem; }
+    .bet-stat-card .stat-value.positive { color: var(--success); }
+    .bet-stat-card .stat-value.negative { color: var(--danger); }
+    .bet-stat-card .stat-value.accent { color: var(--accent); }
+    .bet-stat-card .stat-value.info { color: var(--info); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -108,61 +178,18 @@ st.session_state.setdefault("user", None)
 st.session_state.setdefault("login_time", None)
 st.session_state.setdefault("page", "sorteos")
 st.session_state.setdefault("show_auth", False)
+st.session_state.setdefault("view_mode", "cards")
+st.session_state.setdefault("theme", "dark")
 
-# ─── Header ────────────────────────────────────────────────────────
+# ─── Auth Gate (must be first) ──────────────────────────────────
 
-def render_header():
-    user = st.session_state.get("user")
-    cols = st.columns([1, 2, 1])
-    with cols[0]:
-        st.markdown("")
-    with cols[1]:
-        st.markdown(
-            '<div class="app-header-center">'
-            '<h1>SueñaLotto</h1>'
-            '<span>Florida Lottery • Pick 3 & Pick 4</span>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-    with cols[2]:
-        if user:
-            elapsed = ""
-            if st.session_state.get("login_time"):
-                secs = int(time.time() - st.session_state["login_time"])
-                if secs < 60:
-                    elapsed = f"{secs}s"
-                elif secs < 3600:
-                    elapsed = f"{secs//60}m"
-                else:
-                    elapsed = f"{secs//3600}h {(secs%3600)//60}m"
-            initial = user["username"][0].upper() if user["username"] else "?"
-            c1, c2 = st.columns([1, 0.3])
-            with c1:
-                st.markdown(
-                    f'<div class="app-header-right">'
-                    f'<div class="user-badge">'
-                    f'<div class="user-avatar">{initial}</div>'
-                    f'<div class="user-info">'
-                    f'<div class="user-name">{user["username"]}</div>'
-                    f'<div class="user-time">{elapsed}</div>'
-                    f'</div></div></div>',
-                    unsafe_allow_html=True,
-                )
-            with c2:
-                if st.button("🚪", key="logout_btn"):
-                    for k in ["token", "user", "login_time", "show_auth"]:
-                        st.session_state.pop(k, None)
-                    st.rerun()
-        else:
-            if st.button("🔑 Entrar", key="header_login"):
-                st.session_state["show_auth"] = True
-                st.rerun()
-
-render_header()
-
-# ─── Auth Page ──────────────────────────────────────────────────────
-
-if st.session_state.get("show_auth") and not st.session_state.get("user"):
+if not st.session_state.get("user"):
+    st.markdown("""
+<style>
+    .stAppDeployButton, .stMainMenu, #MainMenu, footer { display: none !important; visibility: hidden !important; }
+    header[data-testid="stHeader"], header { display: none !important; }
+</style>
+""", unsafe_allow_html=True)
     st.markdown('<div class="hero sparkle"><h1>🌟 SueñaLotto</h1><p>Tu guía inteligente para la lotería de Florida. Análisis, estadísticas y la sabiduría de la Charada Cubana.</p></div>', unsafe_allow_html=True)
 
     col_a, col_b = st.columns([1, 1.5])
@@ -188,8 +215,10 @@ if st.session_state.get("show_auth") and not st.session_state.get("user"):
                 ru = st.text_input("Usuario", placeholder="Elige un nombre", key="reg_user")
                 re = st.text_input("Email", placeholder="tu@email.com", key="reg_email")
                 rp = st.text_input("Contraseña", type="password", placeholder="Mínimo 4 caracteres", key="reg_pass")
-                if st.form_submit_button("Crear Cuenta Gratis", type="primary", width='stretch'):
-                    res = api_post("/api/auth/register", {"username": ru, "email": re, "password": rp})
+                plan_opts = {"free": "Gratis", "pro": "Pro Mensual — $1/mes", "lifetime": "De por Vida — $50 único"}
+                plan_sel = st.radio("Elige tu plan", options=list(plan_opts.keys()), format_func=lambda x: plan_opts[x], index=0)
+                if st.form_submit_button("Crear Cuenta", type="primary", width='stretch'):
+                    res = api_post("/api/auth/register", {"username": ru, "email": re, "password": rp, "tier": plan_sel})
                     if res and "access_token" in res:
                         st.session_state["token"] = res["access_token"]
                         st.session_state["user"] = res["user"]
@@ -208,11 +237,11 @@ if st.session_state.get("show_auth") and not st.session_state.get("user"):
                 '<div class="tier-card"><h4 style="color:#94a3b8;">Gratis</h4>'
                 '<div class="tier-price">$0<span>/mes</span></div>'
                 '<div style="text-align:left;margin-top:1rem;font-size:0.85rem;">'
-                '<p><span class="feature-yes">✅</span> Sorteos completos</p>'
-                '<p><span class="feature-no">❌</span> Búsqueda Histórica</p>'
-                '<p><span class="feature-no">❌</span> Charada Enriquecida</p>'
+                '<p><span class="feature-yes">✅</span> Últimos sorteos</p>'
+                '<p><span class="feature-yes">✅</span> Búsqueda Histórica</p>'
+                '<p><span class="feature-yes">✅</span> Sueños (1/día)</p>'
+                '<p><span class="feature-no">❌</span> Estadísticas Pro</p>'
                 '<p><span class="feature-no">❌</span> Adivinanzas IA</p>'
-                '<p><span class="feature-no">❌</span> Búsqueda Sueños</p>'
                 '<p><span class="feature-no">❌</span> Matriz Charada</p></div></div>',
                 unsafe_allow_html=True,
             )
@@ -223,8 +252,8 @@ if st.session_state.get("show_auth") and not st.session_state.get("user"):
                 '<div style="text-align:left;margin-top:1rem;font-size:0.85rem;">'
                 '<p><span class="feature-yes">✅</span> Todo incluido</p>'
                 '<p><span class="feature-yes">✅</span> Sin límites</p>'
-                '<p><span class="feature-yes">✅</span> IA + Sueños</p>'
-                '<p><span class="feature-yes">✅</span> Historial completo</p>'
+                '<p><span class="feature-yes">✅</span> IA + Adivinanzas</p>'
+                '<p><span class="feature-yes">✅</span> Estadísticas Pro</p>'
                 '<p><span class="feature-yes">✅</span> Matriz Charada</p>'
                 '<p><span class="feature-yes">✅</span> Soporte prioritario</p></div></div>',
                 unsafe_allow_html=True,
@@ -245,52 +274,199 @@ if st.session_state.get("show_auth") and not st.session_state.get("user"):
         st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# ─── Main App (authenticated) ─────────────────────────────────────
+# ─── Header (logged in only) ─────────────────────────────────────
 
-user = st.session_state.get("user")
-is_pro = user and user.get("tier") in ("pro", "lifetime")
+user_data = st.session_state.get("user")
+user_cols = st.columns([1, 2, 1])
+with user_cols[1]:
+    st.markdown(
+        '<div class="app-header-center">'
+        '<h1>SueñaLotto</h1>'
+        '<span>Florida Lottery • Pick 3 & Pick 4</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+with user_cols[2]:
+    elapsed = ""
+    if st.session_state.get("login_time"):
+        secs = int(time.time() - st.session_state["login_time"])
+        if secs < 60: elapsed = f"{secs}s"
+        elif secs < 3600: elapsed = f"{secs//60}m"
+        else: elapsed = f"{secs//3600}h {(secs%3600)//60}m"
+    initial = user_data["username"][0].upper() if user_data["username"] else "?"
+    uc1, uc2 = st.columns([1, 0.3])
+    with uc1:
+        st.markdown(
+            f'<div class="app-header-right">'
+            f'<div class="user-badge">'
+            f'<div class="user-avatar">{initial}</div>'
+            f'<div class="user-info">'
+            f'<div class="user-name">{user_data["username"]}</div>'
+            f'<div class="user-time">{elapsed}</div>'
+            f'</div></div></div>',
+            unsafe_allow_html=True,
+        )
+    with uc2:
+        if st.button("🚪", key="logout_btn"):
+            for k in ["token", "user", "login_time", "show_auth", "view_mode", "theme"]:
+                st.session_state.pop(k, None)
+            st.rerun()
 
-st.markdown('<div class="hero sparkle"><h1>🎱 Sorteos</h1><p>Resultados en vivo • Análisis Charada • Predicciones inteligentes</p></div>', unsafe_allow_html=True)
+# ─── Theme toggle ──────────────────────────────────────────────────
 
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown('<div class="card"><h3>📊 Pick 3</h3>', unsafe_allow_html=True)
-    data_p3 = api_get("/api/resultados/ultimos", {"juego": "Pick 3", "limit": 5})
-    if data_p3:
-        for r in data_p3:
-            sorteo_emoji = "🌙" if r["sorteo"] == "E" else "☀️"
+if st.session_state.get("theme") == "light":
+    st.markdown("""
+<style>
+    .stApp { background: #f8fafc !important; }
+    .card { background: rgba(255,255,255,0.95) !important; border-color: rgba(203,213,225,0.8) !important; }
+    .hero p, .app-header-center span { color: #475569 !important; }
+    .card h3 { color: #0f172a !important; }
+    .sorteo-card { background: rgba(255,255,255,0.95) !important; border-color: rgba(203,213,225,0.8) !important; }
+    .sorteo-card .fijo-number { color: #0f172a !important; }
+    .sorteo-card .horario-badge.media { background: rgba(249,115,22,0.1) !important; }
+    .sorteo-card .horario-badge.noche { background: rgba(100,116,139,0.1) !important; color: #475569 !important; border-color: rgba(100,116,139,0.3) !important; }
+    .sorteo-card .corridos-digit.media { background: linear-gradient(135deg, #f97316, #ea580c) !important; }
+    .sorteo-card .corridos-digit.noche { background: #e2e8f0 !important; color: #475569 !important; border: 1px solid #cbd5e1 !important; }
+    .sorteo-list-row { color: #0f172a !important; }
+    .sorteo-list-row.header { color: #64748b !important; }
+    .tier-card { background: rgba(255,255,255,0.95) !important; border-color: rgba(203,213,225,0.8) !important; }
+    .tier-card h4 { color: #0f172a !important; }
+    ul li { color: #475569 !important; }
+    div[data-testid="stForm"] input, .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div>div, .stDateInput>div>div>input { background: white !important; border-color: #cbd5e1 !important; color: #0f172a !important; }
+    h1, h2, h3, h4, h5 { color: #0f172a !important; }
+</style>
+""", unsafe_allow_html=True)
+
+tier_info = api_get("/api/auth/tier")
+if not tier_info:
+    tier_info = {"tier": "free", "can_use_historica": False, "can_use_suenos": False, "can_use_adivinanzas": False, "can_use_matriz": False, "suenos_today": 0, "suenos_limit": 1, "historica_today": 0, "historica_limit": 3}
+
+st.markdown(f'<div class="hero sparkle"><h1>📅 Sorteos</h1><p>Resultados en vivo • Análisis Charada • Predicciones inteligentes</p></div>', unsafe_allow_html=True)
+
+# ─── Toolbar: view toggle, theme toggle ──────────────────────────
+
+tool_cols = st.columns([1.5, 1, 1.5])
+with tool_cols[0]:
+    st.markdown('<div style="padding:0.3rem 0;color:#94a3b8;font-size:0.85rem;">📅 Últimos 3 días</div>', unsafe_allow_html=True)
+with tool_cols[1]:
+    view_mode = st.session_state.get("view_mode", "cards")
+    if st.button("📋 Lista" if view_mode == "cards" else "📇 Tarjetas", key="toggle_view"):
+        st.session_state["view_mode"] = "list" if view_mode == "cards" else "cards"
+        st.rerun()
+with tool_cols[2]:
+    cur_theme = st.session_state.get("theme", "dark")
+    theme_btn = "☀️ Claro" if cur_theme == "dark" else "🌙 Oscuro"
+    if st.button(theme_btn, key="toggle_theme"):
+        st.session_state["theme"] = "light" if cur_theme == "dark" else "dark"
+        st.rerun()
+
+# ─── Fetch results (last 3 days) ─────────────────────────────────
+
+resultados = []
+for i in range(3):
+    d = date.today() - timedelta(days=i)
+    r = api_get("/api/resultados/por-fecha", {"fecha": d.isoformat()})
+    if r:
+        resultados.extend(r)
+
+if not resultados:
+    st.info("📭 No hay sorteos registrados para este período.")
+else:
+    pick3 = [r for r in resultados if r.get("juego") == "Pick 3"]
+    pick4 = [r for r in resultados if r.get("juego") == "Pick 4"]
+
+    for label, items in [("Pick 3", pick3), ("Pick 4", pick4)]:
+        if not items:
+            continue
+        is_p3 = label == "Pick 3"
+        st.markdown(f'<h3 style="color:var(--text-primary);margin:0.5rem 0;">{label}</h3>', unsafe_allow_html=True)
+        sorted_items = sorted(items, key=lambda x: x.get("sorteo", ""))
+
+        if st.session_state.get("view_mode") == "list":
+            cols_header = ["Horario", "Fecha", "FIJO" if is_p3 else "CORRIDOS", "Juego"]
             st.markdown(
-                f'<div style="display:flex;align-items:center;gap:0.75rem;padding:0.4rem 0;border-bottom:1px solid #1e293b;">'
-                f'<span style="color:#64748b;min-width:4.5rem;font-size:0.8rem;">{r["fecha"]}</span>'
-                f'<span style="min-width:1.2rem;">{sorteo_emoji}</span>'
-                f'<span class="result-number">{r["n1"]}</span>'
-                f'<span class="result-number">{r["n2"]}</span>'
-                f'<span class="result-number">{r["n3"]}</span>'
-                f'<span style="color:#64748b;font-size:0.7rem;margin-left:auto;">{r["n2"]}{r["n3"]}</span>'
-                f'</div>', unsafe_allow_html=True)
-    else:
-        st.info("⏳ Cargando datos...")
-    st.markdown('</div>', unsafe_allow_html=True)
+                f'<div class="sorteo-list-row header">'
+                f'<span>{cols_header[0]}</span><span>{cols_header[1]}</span><span>{cols_header[2]}</span><span>{cols_header[3]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            for r in sorted_items:
+                sorteo_label = {"E": "NOCHE", "M": "MEDIODIA"}.get(r.get("sorteo", ""), r.get("sorteo", ""))
+                if is_p3:
+                    display_val = f"{r['n1']}{r['n2']}{r['n3']}"
+                else:
+                    display_val = f"{r['n1']} {r['n2']} {r['n3']} {r['n4']}"
+                fecha_str = r.get("fecha", "")
+                if isinstance(fecha_str, str) and len(fecha_str) >= 10:
+                    try:
+                        d = datetime.strptime(fecha_str[:10], "%Y-%m-%d")
+                        meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"]
+                        fecha_str = f"{d.day} de {meses[d.month-1]} {d.year}"
+                    except:
+                        pass
+                st.markdown(
+                    f'<div class="sorteo-list-row">'
+                    f'<span>{sorteo_label}</span>'
+                    f'<span>{fecha_str}</span>'
+                    f'<span class="list-fijo">{display_val}</span>'
+                    f'<span>{label}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+        else:
+            cards_container = st.container()
+            card_cols = st.columns(2)
+            for i, r in enumerate(sorted_items):
+                sorteo_label = {"E": "NOCHE", "M": "MEDIODIA"}.get(r.get("sorteo", ""), r.get("sorteo", ""))
+                sorteo_css_class = {"E": "noche", "M": "media"}.get(r.get("sorteo", ""), "")
+                sorteo_icon = {"E": "🌙", "M": "☀️"}.get(r.get("sorteo", ""), "")
+                fecha_str = r.get("fecha", "")
+                if isinstance(fecha_str, str) and len(fecha_str) >= 10:
+                    try:
+                        d = datetime.strptime(fecha_str[:10], "%Y-%m-%d")
+                        meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"]
+                        fecha_str = f"{d.day} de {meses[d.month-1]} {d.year}"
+                    except:
+                        pass
 
-with col2:
-    st.markdown('<div class="card"><h3>📊 Pick 4</h3>', unsafe_allow_html=True)
-    data_p4 = api_get("/api/resultados/ultimos", {"juego": "Pick 4", "limit": 5})
-    if data_p4:
-        for r in data_p4:
-            sorteo_emoji = "🌙" if r["sorteo"] == "E" else "☀️"
-            nums_html = "".join(f'<span class="result-number result-number-pick4">{r[f"n{i}"]}</span>' for i in [1,2,3,4])
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:0.75rem;padding:0.4rem 0;border-bottom:1px solid #1e293b;">'
-                f'<span style="color:#64748b;min-width:4.5rem;font-size:0.8rem;">{r["fecha"]}</span>'
-                f'<span style="min-width:1.2rem;">{sorteo_emoji}</span>'
-                f'{nums_html}'
-                f'<span style="color:#64748b;font-size:0.7rem;margin-left:auto;">{r["n1"]}{r["n2"]}|{r["n3"]}{r["n4"]}</span>'
-                f'</div>', unsafe_allow_html=True)
-    else:
-        st.info("⏳ Cargando datos...")
-    st.markdown('</div>', unsafe_allow_html=True)
+                card_col_idx = i % 2
+                with card_cols[card_col_idx]:
+                    if is_p3:
+                        fijo = f"{r['n1']}{r['n2']}{r['n3']}"
+                        st.markdown(
+                            f'<div class="sorteo-card {sorteo_css_class}" style="animation-delay:{i*0.1}s;">'
+                            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">'
+                            f'<span class="horario-badge {sorteo_css_class}">{sorteo_icon} {sorteo_label}</span>'
+                            f'<span class="fecha-text">{fecha_str}</span>'
+                            f'</div>'
+                            f'<div class="fijo-number">{fijo}</div>'
+                            f'<div style="text-align:center;margin:0.5rem 0;font-size:0.7rem;color:var(--text-muted);font-weight:600;letter-spacing:1px;">FIJO</div>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        corridos_digits = [str(r['n1']), str(r['n2']), str(r['n3']), str(r['n4'])]
+                        corridos_html = "".join(
+                            f'<span class="corridos-digit {sorteo_css_class}">{d}</span>'
+                            for d in corridos_digits
+                        )
+                        st.markdown(
+                            f'<div class="sorteo-card {sorteo_css_class}" style="animation-delay:{i*0.1}s;">'
+                            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">'
+                            f'<span class="horario-badge {sorteo_css_class}">{sorteo_icon} {sorteo_label}</span>'
+                            f'<span class="fecha-text">{fecha_str}</span>'
+                            f'</div>'
+                            f'<div style="text-align:center;margin:0.75rem 0;">'
+                            f'<span class="corridos-label">CORRIDOS</span>'
+                            f'<div class="corridos-digits">{corridos_html}</div>'
+                            f'</div>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
 
 st.markdown("---")
+
+# ─── Statistics Charts ─────────────────────────────────────────────
 
 col3, col4 = st.columns(2)
 with col3:
@@ -372,7 +548,7 @@ with col5:
 with col6:
     st.markdown('<div class="card"><h3>💡 Consejos</h3>', unsafe_allow_html=True)
     st.markdown("""
-    <ul style="color:#94a3b8;line-height:1.8;font-size:0.85rem;padding-left:1.2rem;">
+    <ul style="color:var(--text-secondary);line-height:1.8;font-size:0.85rem;padding-left:1.2rem;">
         <li>🔍 Busca tus <strong>sueños</strong> para números Charada</li>
         <li>📈 Revisa <strong>estadísticas</strong> por período y sorteo</li>
         <li>🧠 Usa la <strong>IA</strong> para interpretar adivinanzas</li>
@@ -382,69 +558,22 @@ with col6:
     """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ─── Bet Tracking (logged-in users) ────────────────────────────────
-if user:
-    st.markdown("---")
-    st.markdown('<div class="card"><h3>🎫 Mis Jugadas</h3>', unsafe_allow_html=True)
 
-    with st.expander("➕ Nueva jugada", expanded=False):
-        with st.form("bet_form"):
-            bc1, bc2 = st.columns(2)
-            with bc1:
-                b_fecha = st.date_input("Fecha", value=date.today())
-                b_juego = st.selectbox("Juego", ["Pick 3", "Pick 4"])
-                b_turno = st.selectbox("Turno", ["Mañana", "Mediodía", "Tarde"])
-            with bc2:
-                b_numeros = st.text_input("Números", placeholder="Ej: 1-2-3 o 5-2-1-8")
-                b_precio = st.number_input("Precio ($)", min_value=0.0, step=0.5, format="%.2f")
-                b_desc = st.text_input("Descripción (opcional)", placeholder="Ej: Jugada de la suerte")
 
-            bc3 = st.columns(4)
-            with bc3[0]:
-                b_fijo = st.text_input("Fijo", placeholder="Ej: 3")
-            with bc3[1]:
-                b_corrido = st.text_input("Corrido", placeholder="Ej: 21")
-            with bc3[2]:
-                b_parle = st.text_input("Parle", placeholder="Ej: 3-21")
-            with bc3[3]:
-                b_candado = st.text_input("Candado", placeholder="Ej: 3-2-1")
-
-            if st.form_submit_button("💾 Guardar Jugada", type="primary", width='stretch'):
-                api_post("/api/bets", {
-                    "fecha": b_fecha.isoformat(),
-                    "turno": b_turno,
-                    "juego": b_juego,
-                    "numeros": b_numeros,
-                    "fijo": b_fijo,
-                    "corrido": b_corrido,
-                    "parle": b_parle,
-                    "candado": b_candado,
-                    "precio": b_precio,
-                    "descripcion": b_desc,
-                })
-                st.success("Jugada guardada")
+# ─── Dev Admin Panel (always visible in dev mode) ─────────────────
+st.markdown("---")
+with st.expander("🛠️ Admin / Dev (solo pruebas)", expanded=False):
+    adm_user = st.text_input("Usuario para cambiar plan", placeholder="nombre de usuario", key="adm_user")
+    adm_tier = st.selectbox("Nuevo plan", ["free", "pro", "lifetime"], key="adm_tier")
+    if st.button("Cambiar Plan", key="adm_btn"):
+        res = api_post("/api/admin/set-tier", {"username": adm_user, "tier": adm_tier})
+        if res and res.get("status") == "ok":
+            st.success(f"✅ {adm_user} → {adm_tier}")
+            if st.session_state.get("user", {}).get("username") == adm_user:
+                st.session_state["user"]["tier"] = adm_tier
                 st.rerun()
-
-    bets = api_get("/api/bets")
-    if bets:
-        b_header = ['Fecha', 'Juego', 'Números', 'Fijo', 'Corrido', 'Parle', 'Candado', '$', '']
-        cols = st.columns([1, 1, 1.5, 1, 1, 1, 1, 0.8, 0.5])
-        for i, h in enumerate(b_header):
-            cols[i].markdown(f'<div class="bet-header">{h}</div>', unsafe_allow_html=True)
-        for b in bets:
-            cols = st.columns([1, 1, 1.5, 1, 1, 1, 1, 0.8, 0.5])
-            cols[0].markdown(f'<div class="bet-value">{b["fecha"][:10]}</div>', unsafe_allow_html=True)
-            cols[1].markdown(f'<div class="bet-value">{b["juego"]}</div>', unsafe_allow_html=True)
-            cols[2].markdown(f'<div class="bet-value" style="font-weight:700;color:#fbbf24;">{b["numeros"]}</div>', unsafe_allow_html=True)
-            cols[3].markdown(f'<div class="bet-value">{b.get("fijo") or "-"}</div>', unsafe_allow_html=True)
-            cols[4].markdown(f'<div class="bet-value">{b.get("corrido") or "-"}</div>', unsafe_allow_html=True)
-            cols[5].markdown(f'<div class="bet-value">{b.get("parle") or "-"}</div>', unsafe_allow_html=True)
-            cols[6].markdown(f'<div class="bet-value">{b.get("candado") or "-"}</div>', unsafe_allow_html=True)
-            cols[7].markdown(f'<div class="bet-value">${b.get("precio", 0):.0f}</div>', unsafe_allow_html=True)
-            if cols[8].button("✕", key=f"del_{b['id']}"):
-                api_post(f"/api/bets/{b['id']}/delete", json_data={})
-                st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.error("No se pudo cambiar el plan")
 
 st.markdown("""
 <div style="text-align:center;padding:2rem;color:#475569;font-size:0.75rem;">

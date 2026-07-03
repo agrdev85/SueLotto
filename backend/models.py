@@ -90,6 +90,7 @@ class UserUsage(Base):
     fecha = Column(Date, nullable=False)
     charada_count = Column(Integer, default=0)
     busquedas_count = Column(Integer, default=0)
+    historica_count = Column(Integer, default=0)
 
     __table_args__ = (
         UniqueConstraint("user_id", "fecha", name="uq_user_usage"),

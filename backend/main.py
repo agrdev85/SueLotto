@@ -69,6 +69,20 @@ def api_update_status():
     return get_auto_update_status()
 
 
+@app.post("/api/admin/set-tier")
+def api_admin_set_tier(data: dict = Body(...), db: Session = Depends(get_db)):
+    username = data.get("username", "").strip()
+    new_tier = data.get("tier", "free").strip().lower()
+    if new_tier not in ("free", "pro", "lifetime"):
+        raise HTTPException(400, "Plan inválido: free, pro, lifetime")
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(404, "Usuario no encontrado")
+    user.tier = new_tier
+    db.commit()
+    return {"status": "ok", "username": username, "tier": new_tier}
+
+
 @app.get("/api/resultados/ultimos")
 def api_ultimos_resultados(
     juego: str = Query(..., pattern="^(Pick 3|Pick 4)$"),
@@ -77,6 +91,16 @@ def api_ultimos_resultados(
     db: Session = Depends(get_db),
 ):
     return get_ultimos_resultados(db, juego, sorteo, limit)
+
+
+@app.get("/api/resultados/por-fecha")
+def api_resultados_por_fecha(
+    fecha: date,
+    db: Session = Depends(get_db),
+):
+    from backend.models import Resultado
+    resultados = db.query(Resultado).filter(Resultado.fecha == fecha).order_by(Resultado.juego, Resultado.sorteo).all()
+    return resultados
 
 
 @app.get("/api/resultados/historicos")
@@ -104,7 +128,7 @@ def api_historicos(
 
 @app.get("/api/estadisticas/frecuencias")
 def api_frecuencias(
-    juego: str = Query(..., pattern="^(Pick 3|Pick 4)$"),
+    juego: Optional[str] = Query(None),
     sorteo: Optional[str] = Query(None, pattern="^(E|M)$"),
     dias: int = 30,
     db: Session = Depends(get_db),
@@ -123,7 +147,7 @@ def api_atrasados(
 
 @app.get("/api/predicciones")
 def api_predicciones(
-    juego: str = Query(..., pattern="^(Pick 3|Pick 4)$"),
+    juego: Optional[str] = Query(None),
     sorteo: Optional[str] = Query(None, pattern="^(E|M)$"),
     db: Session = Depends(get_db),
 ):
@@ -271,6 +295,10 @@ def api_register(data: dict = Body(...), db: Session = Depends(get_db)):
     username = data.get("username", "").strip()
     email = data.get("email", "").strip()
     password = data.get("password", "")
+    tier = data.get("tier", "free").strip().lower()
+
+    if tier not in ("free", "pro", "lifetime"):
+        tier = "free"
 
     if not username or not email or not password:
         raise HTTPException(400, "Todos los campos son requeridos")
@@ -285,7 +313,7 @@ def api_register(data: dict = Body(...), db: Session = Depends(get_db)):
         username=username,
         email=email,
         password_hash=hash_password(password),
-        tier="free",
+        tier=tier,
     )
     db.add(user)
     db.commit()
@@ -351,40 +379,45 @@ def api_check_tier(
     db: Session = Depends(get_db),
 ):
     tier = current_user.tier if current_user else "free"
-    can_use_historica = tier in ("trial", "pro", "lifetime")
-    can_use_charada = tier in ("trial", "pro", "lifetime")
-    can_use_suenos = tier in ("pro", "lifetime")
+
+    # Free: sorteos, estadísticas, histórica, sueños (3/día cada uno)
+    can_use_historica = tier in ("free", "trial", "pro", "lifetime")
+    can_use_suenos = tier in ("free", "trial", "pro", "lifetime")
     can_use_adivinanzas = tier in ("pro", "lifetime")
     can_use_matriz = tier in ("pro", "lifetime")
 
-    charada_today = 0
-    charada_limit = 999
-    if tier == "trial":
-        charada_limit = 3
+    suenos_today = 0
+    suenos_limit = 999
+    historica_today = 0
+    historica_limit = 999
+    if tier in ("free", "trial"):
+        suenos_limit = 1
+        historica_limit = 3
         if current_user:
             usage = db.query(UserUsage).filter(
                 UserUsage.user_id == current_user.id,
                 UserUsage.fecha == date.today(),
             ).first()
             if usage:
-                charada_today = usage.charada_count
-    elif tier == "free":
-        charada_limit = 0
+                suenos_today = usage.charada_count
+                historica_today = usage.historica_count
 
     return {
         "tier": tier,
         "can_use_historica": can_use_historica,
-        "can_use_charada": can_use_charada,
         "can_use_suenos": can_use_suenos,
         "can_use_adivinanzas": can_use_adivinanzas,
         "can_use_matriz": can_use_matriz,
-        "charada_today": charada_today,
-        "charada_limit": charada_limit,
+        "suenos_today": suenos_today,
+        "suenos_limit": suenos_limit,
+        "historica_today": historica_today,
+        "historica_limit": historica_limit,
     }
 
 
-@app.post("/api/usage/charada")
-def api_increment_charada_usage(current_user: Optional[User] = Depends(_get_user_from_token), db: Session = Depends(get_db)):
+@app.post("/api/usage/busqueda")
+def api_increment_busqueda_usage(current_user: Optional[User] = Depends(_get_user_from_token), db: Session = Depends(get_db)):
+    """Incrementa contador de búsquedas de sueños (charada)."""
     if not current_user:
         raise HTTPException(401, "No autenticado")
     usage = db.query(UserUsage).filter(
@@ -397,7 +430,25 @@ def api_increment_charada_usage(current_user: Optional[User] = Depends(_get_user
     else:
         usage.charada_count += 1
     db.commit()
-    return {"charada_today": usage.charada_count}
+    return {"suenos_today": usage.charada_count}
+
+
+@app.post("/api/usage/historica")
+def api_increment_historica_usage(current_user: Optional[User] = Depends(_get_user_from_token), db: Session = Depends(get_db)):
+    """Incrementa contador de búsquedas históricas."""
+    if not current_user:
+        raise HTTPException(401, "No autenticado")
+    usage = db.query(UserUsage).filter(
+        UserUsage.user_id == current_user.id,
+        UserUsage.fecha == date.today(),
+    ).first()
+    if not usage:
+        usage = UserUsage(user_id=current_user.id, fecha=date.today(), historica_count=1)
+        db.add(usage)
+    else:
+        usage.historica_count += 1
+    db.commit()
+    return {"historica_today": usage.historica_count}
 
 
 # ─── Bet Endpoints ─────────────────────────────────────────────────
@@ -434,7 +485,7 @@ def api_create_bet(data: dict = Body(...), current_user: Optional[User] = Depend
         user_id=current_user.id,
         fecha=datetime.strptime(data["fecha"], "%Y-%m-%d").date(),
         turno=data.get("turno"),
-        juego=data["juego"],
+        juego=data.get("juego"),
         numeros=data["numeros"],
         fijo=data.get("fijo"),
         corrido=data.get("corrido"),
