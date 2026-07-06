@@ -77,11 +77,16 @@ def get_rango_fechas(db: Session, juego: str):
 
 
 def _extraer_pares(r):
-    """Extrae pares (corridos) de un resultado: n2-n3 (Pick 3/4) y n3-n4 (Pick 4)."""
+    """Extrae pares (corridos) de un resultado:
+       Pick 3 → n2-n3 (back pair, único par interno)
+       Pick 4 → n1-n2 (front pair) + n3-n4 (back pair)
+    """
     pares = []
-    pares.append(r.n2 * 10 + r.n3)
     if r.n4 is not None:
+        pares.append(r.n1 * 10 + r.n2)
         pares.append(r.n3 * 10 + r.n4)
+    else:
+        pares.append(r.n2 * 10 + r.n3)
     return pares
 
 
