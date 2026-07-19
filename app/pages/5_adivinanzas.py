@@ -1,35 +1,25 @@
 import streamlit as st
-import httpx
-import os
 from datetime import date
+import os, sys
 from dotenv import load_dotenv
 
 load_dotenv()
-API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Adivinanzas - SueñaLotto", page_icon="🧠", layout="wide")
 
-# Inline tier check
-def _check_tier():
-    token = st.session_state.get("token")
-    if not token:
-        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p><p style="color:#64748b;font-size:0.85rem;">💎 Suscríbete a <strong style="color:#fbbf24;">Pro</strong> para acceder.</p></div>', unsafe_allow_html=True)
-        st.stop()
-        return {}
-    try:
-        r = httpx.get(f"{API_URL}/api/auth/tier", headers={"Authorization": f"Bearer {token}"}, timeout=10)
-        if r.status_code != 200:
-            st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Error de autenticación</h2><p style="color:#94a3b8;">Vuelve a iniciar sesión.</p></div>', unsafe_allow_html=True)
-            st.stop()
-            return {}
-        return r.json()
-    except Exception:
-        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">No se pudo verificar suscripción</h2><p style="color:#94a3b8;">¿Está el backend encendido?</p></div>', unsafe_allow_html=True)
-        st.stop()
-        return {}
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from app.shared import render_global_header, api_get, api_post, init_session_state
 
-_t = _check_tier()
-if _t.get("tier") not in ("pro", "lifetime"):
+init_session_state()
+
+if not st.session_state.get("user"):
+    st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p></div>', unsafe_allow_html=True)
+    st.stop()
+
+render_global_header()
+
+tier_info = api_get("/api/auth/tier")
+if not tier_info or tier_info.get("tier") not in ("pro", "lifetime"):
     st.markdown("""
     <div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:linear-gradient(135deg, #1e3a5f, #2d1b4e);border-radius:1rem;border:1px solid #4a3f6b;">
         <div style="font-size:3rem;margin-bottom:1rem;">🔒</div>
@@ -46,11 +36,6 @@ if _t.get("tier") not in ("pro", "lifetime"):
 
 st.markdown("""
 <style>
-    .stAppDeployButton, .stMainMenu, #MainMenu, footer { display: none !important; visibility: hidden !important; }
-    header[data-testid="stHeader"] { background: rgba(15, 23, 42, 0.95) !important; backdrop-filter: blur(12px); border-bottom: 1px solid rgba(251, 191, 36, 0.15); }
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%); }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; }
-    .card h3 { color: #f1f5f9; }
     .riddle-box { background: linear-gradient(135deg, #1e3a5f, #2d1b4e); border: 1px solid #4a3f6b; border-radius: 0.75rem; padding: 1.5rem; margin: 1rem 0; text-align: center; }
     .riddle-text { font-size: 1.3rem; color: #fbbf24; font-style: italic; line-height: 1.6; }
     .ia-number { display: inline-block; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; font-weight: bold;
@@ -59,25 +44,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">🧠 Adivinanzas con IA</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color:#94a3b8;text-align:center;">Interpreta la adivinanza del día con ayuda de inteligencia artificial</p>', unsafe_allow_html=True)
-
-@st.cache_data(ttl=300)
-def api_get(path, params=None):
-    try:
-        r = httpx.get(f"{API_URL}{path}", params=params, timeout=30)
-        r.raise_for_status()
-        return r.json()
-    except:
-        return None
-
-def api_post_json(path, json_data=None):
-    try:
-        r = httpx.post(f"{API_URL}{path}", json=json_data if json_data else {}, timeout=30)
-        r.raise_for_status()
-        return r.json()
-    except:
-        return None
-
+st.markdown('<p style="color:var(--text-secondary);text-align:center;">Interpreta la adivinanza del día con ayuda de inteligencia artificial</p>', unsafe_allow_html=True)
 
 adivinanza_hoy = api_get("/api/adivinanza/hoy")
 
@@ -145,7 +112,7 @@ if analizar:
         st.warning("Por favor, completa tanto la adivinanza como tu interpretación.")
     else:
         with st.spinner("🤖 La IA está analizando la adivinanza..."):
-            result = api_post_json(
+            result = api_post(
                 "/api/adivinanza/analizar",
                 {"adivinanza": adivinanza_input, "interpretacion": interpretacion},
             )
@@ -185,7 +152,7 @@ if analizar:
             
             st.markdown("</div>", unsafe_allow_html=True)
         else:
-            st.error("⏳ Cargando datos desde la IA...")
+            st.info("⏳ Cargando datos desde la IA...")
 
 st.markdown("""
 <div style="text-align:center;padding:2rem;">

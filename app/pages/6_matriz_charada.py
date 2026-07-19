@@ -1,36 +1,26 @@
 import streamlit as st
-import httpx
-import os
 import re as re_mod
+import os, sys
 from dotenv import load_dotenv
 
 load_dotenv()
-
 API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Matriz & Charada", page_icon="🔢", layout="wide")
 
-# Inline tier check
-def _check_tier():
-    token = st.session_state.get("token")
-    if not token:
-        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p><p style="color:#64748b;font-size:0.85rem;">💎 Suscríbete a <strong style="color:#fbbf24;">Pro</strong> para acceder.</p></div>', unsafe_allow_html=True)
-        st.stop()
-        return {}
-    try:
-        r = httpx.get(f"{API_URL}/api/auth/tier", headers={"Authorization": f"Bearer {token}"}, timeout=10)
-        if r.status_code != 200:
-            st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Error de autenticación</h2><p style="color:#94a3b8;">Vuelve a iniciar sesión.</p></div>', unsafe_allow_html=True)
-            st.stop()
-            return {}
-        return r.json()
-    except Exception:
-        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">No se pudo verificar suscripción</h2><p style="color:#94a3b8;">¿Está el backend encendido?</p></div>', unsafe_allow_html=True)
-        st.stop()
-        return {}
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from app.shared import render_global_header, api_get, api_post, init_session_state
 
-_t = _check_tier()
-if _t.get("tier") not in ("pro", "lifetime"):
+init_session_state()
+
+if not st.session_state.get("user"):
+    st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p></div>', unsafe_allow_html=True)
+    st.stop()
+
+render_global_header()
+
+tier_info = api_get("/api/auth/tier")
+if not tier_info or tier_info.get("tier") not in ("pro", "lifetime"):
     st.markdown("""
     <div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:linear-gradient(135deg, #1e293b, #1e3a5f);border-radius:1rem;border:1px solid #334155;">
         <div style="font-size:3rem;margin-bottom:1rem;">🔒</div>
@@ -47,16 +37,8 @@ if _t.get("tier") not in ("pro", "lifetime"):
 
 st.markdown("""
 <style>
-    .stAppDeployButton, .stMainMenu, #MainMenu, footer { display: none !important; visibility: hidden !important; }
-    header[data-testid="stHeader"] { background: rgba(15, 23, 42, 0.95) !important; backdrop-filter: blur(12px); border-bottom: 1px solid rgba(251, 191, 36, 0.15); }
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%); }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; }
-    .card h3 { color: #f1f5f9; margin-bottom: 0.5rem; }
     .result-number { display: inline-block; background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; font-weight: bold;
                      font-size: 1.2rem; width: 2.5rem; height: 2.5rem; text-align: center; line-height: 2.5rem; border-radius: 0.5rem; margin: 0 0.15rem; }
-    .stTabs [data-baseweb="tab-list"] { gap: 1rem; }
-    .stTabs [data-baseweb="tab"] { background: #1e293b; border-radius: 0.5rem 0.5rem 0 0; padding: 0.5rem 1.5rem; color: #94a3b8; }
-    .stTabs [aria-selected="true"] { background: #334155; color: #fbbf24; }
     .charada-scroll { max-height: 400px; overflow-y: auto; padding-right: 0.5rem; margin-top: 0.5rem; }
     .charada-scroll::-webkit-scrollbar { width: 6px; }
     .charada-scroll::-webkit-scrollbar-track { background: #1e293b; border-radius: 3px; }
@@ -71,7 +53,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 style="text-align:center;color:#fbbf24;">🔢 Matriz & Charada</h1>', unsafe_allow_html=True)
-st.markdown('<p style="text-align:center;color:#94a3b8;">Análisis matricial de números • Comparación con calientes y posibles</p>', unsafe_allow_html=True)
+st.markdown('<p style="text-align:center;color:var(--text-secondary);">Análisis matricial de números • Comparación con calientes y posibles</p>', unsafe_allow_html=True)
 
 MATRIZ_NUEVA = [
     [1, 100, 2, 99, 3, 98, 4, 97, 5, 96],
@@ -99,25 +81,6 @@ MATRIZ_VIEJA = [
     [29, 42, 0, 34, 52, 43, 94, 0, 5, 55, 86],
     [95, 65, 44, 88, 6, 22, 67, 0, 18, 23, 26],
 ]
-
-
-@st.cache_data(ttl=60)
-def api_get(path: str, params: dict = None):
-    try:
-        r = httpx.get(f"{API_URL}{path}", params=params, timeout=30)
-        r.raise_for_status()
-        return r.json()
-    except:
-        return None
-
-
-def api_post(path: str, data: dict):
-    try:
-        r = httpx.post(f"{API_URL}{path}", json=data, timeout=30)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        return None
 
 
 tipo_matriz = st.selectbox("Tipo de Matriz", ["nueva", "vieja"],
@@ -385,67 +348,123 @@ with tabs[2]:
             "limite": limite_top,
         })
         if resp:
-            m1, m2, m3, m4 = st.columns(4)
+            scored = resp.get("scored_final", [])
+
+            m1, m2, m3, m4, m5 = st.columns(5)
             with m1:
                 st.metric("Alrededor", resp["total_alrededor"])
             with m2:
-                st.metric("Intersección Calientes", resp["total_interseccion_calientes"])
+                st.metric("🔴 Calientes", resp["total_interseccion_calientes"])
             with m3:
-                st.metric("Intersección Posibles", resp["total_interseccion_posibles"])
+                st.metric("🔵 Posibles", resp["total_interseccion_posibles"])
             with m4:
-                st.metric("Discriminante", resp["total_discriminante"])
+                st.metric("🟡 Ambos", resp["total_interseccion_ambos"])
+            with m5:
+                st.metric("🏆 Score Final", len(scored))
 
-            st.markdown(f'<div class="card" style="margin-top:1rem;"><h4>🔴 Intersección con Calientes ({resp["total_interseccion_calientes"]})</h4>', unsafe_allow_html=True)
-            if resp["interseccion_calientes"]:
-                numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["interseccion_calientes"])
-                st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            _cat_colors = {
+                "ambos": "#fbbf24",
+                "caliente": "#ef4444",
+                "posible": "#3b82f6",
+                "discriminante": "#22c55e",
+            }
+            _cat_labels = {
+                "ambos": "🔥 Cal+Pos",
+                "caliente": "🔴 Caliente",
+                "posible": "🔵 Posible",
+                "discriminante": "🟢 Discriminante",
+            }
 
-            st.markdown(f'<div class="card"><h4>🔵 Intersección con Posibles ({resp["total_interseccion_posibles"]})</h4>', unsafe_allow_html=True)
-            if resp["interseccion_posibles"]:
-                numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["interseccion_posibles"])
-                st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            st.markdown(f'<div class="card"><h4>🟡 Intersección con Ambos (Caliente + Posible) ({resp["total_interseccion_ambos"]})</h4>', unsafe_allow_html=True)
-            if resp["interseccion_ambos"]:
-                numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["interseccion_ambos"])
-                st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
-            else:
-                st.info("No hay números que sean calientes y posibles a la vez.")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-            st.markdown(f'<div class="card"><h4>🟢 Discriminante ({resp["total_discriminante"]}) · <span style="color:#94a3b8;font-size:0.85rem;">Alrededor − Calientes − Posibles</span></h4>', unsafe_allow_html=True)
-            if resp["discriminante"]:
-                numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["discriminante"])
-                st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
-
-                scored = resp.get("discriminante_scored", [])
-                if scored:
-                    st.markdown(f'<h4 style="color:#fbbf24;margin-top:1rem;">🏆 Top {len(scored)} — Score Estadístico</h4>', unsafe_allow_html=True)
+            if scored:
+                st.markdown(
+                    f'<div class="card" style="margin-top:1rem;">'
+                    f'<h3 style="color:#fbbf24;">🏆 Top {len(scored)} — Score Estadístico Final</h3>'
+                    f'<p style="color:#94a3b8;font-size:0.85rem;">'
+f'Clasificación de TODOS los números alrededor por score compuesto '
+f'(freq 15% + recencia 30% + freq7d 15% + dígitos 15% + tendencia 25%). '
+f'Bonus +0.35 si 🔴caliente, +0.34 si 🔵posible, +0.45 si 🟡ambos.</p>'
+                    f'<div style="display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">'
+                    f'<span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#ef4444;border-radius:0.2rem;"></span> Caliente</span>'
+                    f'<span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#3b82f6;border-radius:0.2rem;"></span> Posible</span>'
+                    f'<span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#fbbf24;border-radius:0.2rem;"></span> Caliente+Posible</span>'
+                    f'<span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#22c55e;border-radius:0.2rem;"></span> Discriminante</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                for i, s in enumerate(scored):
+                    cat = s.get("categoria", "discriminante")
+                    cat_color = _cat_colors.get(cat, "#22c55e")
+                    cat_label = _cat_labels.get(cat, "🟢 Disc.")
+                    bar_w = max(int(s["score"] * 100), 3)
+                    freq_7d = s.get("frecuencia_7d", 0)
                     st.markdown(
-                        '<p style="color:#94a3b8;font-size:0.85rem;">'
-                        'Combinando frecuencia (90 días), atraso y probabilidad ML. '
-                        'Se eliminan números sin frecuencia y >365 días sin salir.</p>',
-                        unsafe_allow_html=True,
-                    )
-                    for i, s in enumerate(scored):
-                        bar_w = max(int(s["score"] * 100), 5)
-                        st.markdown(
-                            f'<div style="display:flex;align-items:center;gap:0.75rem;padding:0.3rem 0;border-bottom:1px solid #334155;">'
-                            f'<span style="color:#64748b;min-width:1.5rem;">#{i+1}</span>'
-                            f'<span style="background:#fbbf24;color:#0f172a;font-weight:bold;border-radius:0.3rem;padding:0.1rem 0.5rem;min-width:2.5rem;text-align:center;">{s["numero"]:02d}</span>'
-                            f'<div style="flex:1;background:#334155;height:0.5rem;border-radius:0.25rem;">'
-                            f'<div style="background:linear-gradient(90deg,#22c55e,#fbbf24);width:{bar_w}%;height:100%;border-radius:0.25rem;"></div></div>'
-                            f'<span style="color:#94a3b8;font-size:0.8rem;min-width:3rem;">{s["frecuencia"]}×</span>'
-                            f'<span style="color:#94a3b8;font-size:0.8rem;min-width:3rem;">{s["dias_sin_salir"]}d</span>'
-                            f'<span style="color:#22c55e;font-size:0.8rem;min-width:2.5rem;">{s["probabilidad_ml"]:.1%}</span>'
-                            f'</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<p style="color:#22c55e;font-size:0.85rem;margin-top:0.5rem;">💡 Recomendación: Estos números están en la matriz pero NO son calientes ni posibles. Podrían ser su mejor oportunidad.</p>', unsafe_allow_html=True)
+                        f'<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;border-bottom:1px solid #1e293b;">'
+                        f'<span style="color:#64748b;min-width:1.5rem;font-size:0.8rem;">#{i+1}</span>'
+                        f'<span style="background:{cat_color};color:#0f172a;font-weight:bold;border-radius:0.3rem;padding:0.1rem 0.5rem;min-width:2.5rem;text-align:center;">{s["numero"]:02d}</span>'
+                        f'<span style="color:{cat_color};font-size:0.65rem;min-width:4.5rem;font-weight:600;">{cat_label}</span>'
+                        f'<div style="flex:1;background:#1e293b;height:0.6rem;border-radius:0.3rem;">'
+                        f'<div style="background:linear-gradient(90deg,{cat_color},#fbbf24);width:{bar_w}%;height:100%;border-radius:0.3rem;"></div></div>'
+                        f'<span style="color:#94a3b8;font-size:0.7rem;min-width:1.8rem;text-align:right;" title="Frecuencia 90d">{s["frecuencia"]}×</span>'
+                        f'<span style="color:#fbbf24;font-size:0.7rem;min-width:1.8rem;text-align:right;" title="Frecuencia últimos 7 días">{"🔥" + str(freq_7d) + "×" if freq_7d else ""}</span>'
+                        f'<span style="color:#94a3b8;font-size:0.7rem;min-width:1.5rem;text-align:right;" title="Días sin salir">{s["dias_sin_salir"]}d</span>'
+                        f'<span style="color:#22c55e;font-size:0.7rem;min-width:2rem;text-align:right;" title="Probabilidad ML">{s["probabilidad_ml"]:.1%}</span>'
+                    f'<span style="color:#a78bfa;font-size:0.65rem;min-width:1.8rem;text-align:right;" title="Tendencia (últimos 15d vs 15d ant)">{("📈" + str(round(s["tendencia"] * 100)) + "%") if s["tendencia"] > 0 else ("📉" + str(round(abs(s["tendencia"]) * 100)) + "%")}</span>'
+                    f'<span style="color:#f59e0b;font-size:0.65rem;min-width:1.5rem;text-align:right;" title="Score dígitos (0-9) del par">{str(round(s["digito_score"] * 100)) + "%"}</span>'
+                        f'</div>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
             else:
-                st.info("No hay números discriminantes.")
-            st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="card" style="margin-top:1rem;">'
+                    f'<h4 style="color:#94a3b8;">⏳ No hay suficientes datos para calcular el score</h4>'
+                    f'<p style="color:#64748b;font-size:0.85rem;">Asegúrate de tener resultados históricos importados.</p>'
+                    f'</div>', unsafe_allow_html=True
+                )
+
+            with st.expander("📊 Desglose por categorías", expanded=False):
+                st.markdown(
+                    f'<div class="card">'
+                    f'<h4>🔴 Calientes en Alrededor ({resp["total_interseccion_calientes"]})</h4>',
+                    unsafe_allow_html=True,
+                )
+                if resp["interseccion_calientes"]:
+                    numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["interseccion_calientes"])
+                    st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                st.markdown(
+                    f'<div class="card">'
+                    f'<h4>🔵 Posibles en Alrededor ({resp["total_interseccion_posibles"]})</h4>',
+                    unsafe_allow_html=True,
+                )
+                if resp["interseccion_posibles"]:
+                    numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["interseccion_posibles"])
+                    st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                st.markdown(
+                    f'<div class="card">'
+                    f'<h4>🟡 Caliente + Posible ({resp["total_interseccion_ambos"]})</h4>',
+                    unsafe_allow_html=True,
+                )
+                if resp["interseccion_ambos"]:
+                    numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["interseccion_ambos"])
+                    st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
+                else:
+                    st.info("No hay números que sean calientes y posibles a la vez.")
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                st.markdown(
+                    f'<div class="card">'
+                    f'<h4>🟢 Discriminante ({resp["total_discriminante"]}) · '
+                    f'<span style="color:#94a3b8;font-size:0.85rem;">Alrededor − Calientes − Posibles</span></h4>',
+                    unsafe_allow_html=True,
+                )
+                if resp["discriminante"]:
+                    numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["discriminante"])
+                    st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
+                else:
+                    st.info("No hay números discriminantes.")
+                st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ─── Tab 3: Charada Enriquecida ──────────────────────────────────

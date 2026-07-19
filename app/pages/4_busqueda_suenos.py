@@ -1,48 +1,33 @@
 import streamlit as st
-import httpx
-import os
+import os, sys
 from dotenv import load_dotenv
 
 load_dotenv()
-API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Búsqueda de Sueños - SueñaLotto", page_icon="🌙", layout="wide")
 
-# Inline tier check
-def _check_tier():
-    token = st.session_state.get("token")
-    if not token:
-        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p><p style="color:#64748b;font-size:0.85rem;">💎 Suscríbete a <strong style="color:#fbbf24;">Pro</strong> para acceder.</p></div>', unsafe_allow_html=True)
-        st.stop()
-        return {}
-    try:
-        r = httpx.get(f"{API_URL}/api/auth/tier", headers={"Authorization": f"Bearer {token}"}, timeout=10)
-        if r.status_code != 200:
-            st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Error de autenticación</h2><p style="color:#94a3b8;">Vuelve a iniciar sesión.</p></div>', unsafe_allow_html=True)
-            st.stop()
-            return {}
-        return r.json()
-    except Exception:
-        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">No se pudo verificar suscripción</h2><p style="color:#94a3b8;">¿Está el backend encendido?</p></div>', unsafe_allow_html=True)
-        st.stop()
-        return {}
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from app.shared import render_global_header, api_get, api_post, init_session_state
 
-_t = _check_tier()
-if not _t or _t.get("tier") not in ("free", "trial", "pro", "lifetime"):
+init_session_state()
+
+if not st.session_state.get("user"):
+    st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p></div>', unsafe_allow_html=True)
     st.stop()
 
-tier_name = _t.get("tier", "free")
-suenos_today = _t.get("suenos_today", 0)
-suenos_limit = _t.get("suenos_limit", 1)
+render_global_header()
+
+tier_info = api_get("/api/auth/tier")
+if not tier_info or tier_info.get("tier") not in ("free", "trial", "pro", "lifetime"):
+    st.stop()
+
+tier_name = tier_info.get("tier", "free")
+suenos_today = tier_info.get("suenos_today", 0)
+suenos_limit = tier_info.get("suenos_limit", 1)
 is_free = tier_name in ("free", "trial")
 
 st.markdown("""
 <style>
-    .stAppDeployButton, .stMainMenu, #MainMenu, footer { display: none !important; visibility: hidden !important; }
-    header[data-testid="stHeader"] { background: rgba(15, 23, 42, 0.95) !important; backdrop-filter: blur(12px); border-bottom: 1px solid rgba(251, 191, 36, 0.15); }
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%); }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; }
-    .card h3 { color: #f1f5f9; }
     .dream-number { display: inline-block; background: linear-gradient(135deg, #f59e0b, #ef4444); color: white; font-weight: bold; 
                     font-size: 1.5rem; width: 3rem; height: 3rem; text-align: center; line-height: 3rem; border-radius: 0.5rem; margin: 0.25rem; }
     .highlight-word { background: #fbbf24; color: #0f172a; padding: 0.1rem 0.3rem; border-radius: 0.2rem; font-weight: bold; }
@@ -51,7 +36,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">🌙 Búsqueda de Sueños</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color:#94a3b8;text-align:center;">Describe tu sueño y descubre los números asociados según la tabla de sueños</p>', unsafe_allow_html=True)
+st.markdown('<p style="color:var(--text-secondary);text-align:center;">Describe tu sueño y descubre los números asociados según la tabla de sueños</p>', unsafe_allow_html=True)
 
 if is_free and suenos_limit < 999:
     remaining = suenos_limit - suenos_today
@@ -59,32 +44,6 @@ if is_free and suenos_limit < 999:
         st.error("🚫 Has alcanzado el límite diario de 1 búsqueda. Actualiza a **Pro** para búsquedas ilimitadas.")
     else:
         st.info(f"💡 Te queda **{remaining}** de **{suenos_limit}** búsqueda hoy. Actualiza a Pro para búsquedas ilimitadas.")
-
-@st.cache_data(ttl=60)
-def api_get(path, params=None):
-    headers = {}
-    token = st.session_state.get("token")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    try:
-        r = httpx.get(f"{API_URL}{path}", params=params, headers=headers, timeout=30)
-        r.raise_for_status()
-        return r.json()
-    except:
-        return None
-
-def api_post(path, json_data=None):
-    headers = {}
-    token = st.session_state.get("token")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    try:
-        r = httpx.post(f"{API_URL}{path}", json=json_data, headers=headers, timeout=30)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        return None
-
 
 with st.container():
     st.markdown('<div class="card">', unsafe_allow_html=True)

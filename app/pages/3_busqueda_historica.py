@@ -1,57 +1,35 @@
 import streamlit as st
-import httpx
 import pandas as pd
 from datetime import date, timedelta
-import os
+import os, sys
 from dotenv import load_dotenv
 
 load_dotenv()
-API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Búsqueda Histórica - SueñaLotto", page_icon="🔎", layout="wide")
 
-# Inline tier check
-def _check_tier():
-    token = st.session_state.get("token")
-    if not token:
-        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p><p style="color:#64748b;font-size:0.85rem;">💎 Suscríbete a <strong style="color:#fbbf24;">Pro</strong> para acceder.</p></div>', unsafe_allow_html=True)
-        st.stop()
-        return {}
-    try:
-        r = httpx.get(f"{API_URL}/api/auth/tier", headers={"Authorization": f"Bearer {token}"}, timeout=10)
-        if r.status_code != 200:
-            st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Error de autenticación</h2><p style="color:#94a3b8;">Vuelve a iniciar sesión.</p></div>', unsafe_allow_html=True)
-            st.stop()
-            return {}
-        return r.json()
-    except Exception:
-        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">No se pudo verificar suscripción</h2><p style="color:#94a3b8;">¿Está el backend encendido?</p></div>', unsafe_allow_html=True)
-        st.stop()
-        return {}
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from app.shared import render_global_header, api_get, api_post, init_session_state
 
-_t = _check_tier()
-if not _t or _t.get("tier") not in ("free", "trial", "pro", "lifetime"):
+init_session_state()
+
+if not st.session_state.get("user"):
+    st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p></div>', unsafe_allow_html=True)
     st.stop()
 
-tier_name = _t.get("tier", "free")
-historica_today = _t.get("historica_today", 0)
-historica_limit = _t.get("historica_limit", 3)
+render_global_header()
+
+tier_info = api_get("/api/auth/tier")
+if not tier_info or tier_info.get("tier") not in ("free", "trial", "pro", "lifetime"):
+    st.stop()
+
+tier_name = tier_info.get("tier", "free")
+historica_today = tier_info.get("historica_today", 0)
+historica_limit = tier_info.get("historica_limit", 3)
 is_free = tier_name in ("free", "trial")
 
-st.markdown("""
-<style>
-    .stAppDeployButton, .stMainMenu, #MainMenu, footer { display: none !important; visibility: hidden !important; }
-    header[data-testid="stHeader"] { background: rgba(15, 23, 42, 0.95) !important; backdrop-filter: blur(12px); border-bottom: 1px solid rgba(251, 191, 36, 0.15); }
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%); }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; }
-    .card h3 { color: #f1f5f9; }
-    .result-number-sm { display: inline-block; background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: white; font-weight: bold; 
-                        font-size: 1rem; width: 2rem; height: 2rem; text-align: center; line-height: 2rem; border-radius: 0.3rem; margin: 0 0.1rem; }
-</style>
-""", unsafe_allow_html=True)
-
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">🔍 Buscador Histórico Inteligente</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color:#94a3b8;text-align:center;">Busca resultados históricos con filtros combinados</p>', unsafe_allow_html=True)
+st.markdown('<p style="color:var(--text-secondary);text-align:center;">Busca resultados históricos con filtros combinados</p>', unsafe_allow_html=True)
 
 if is_free and historica_limit < 999:
     remaining = historica_limit - historica_today
@@ -59,31 +37,6 @@ if is_free and historica_limit < 999:
         st.error("🚫 Has alcanzado el límite diario de 3 búsquedas históricas. Actualiza a **Pro** para búsquedas ilimitadas.")
     else:
         st.info(f"💡 Te quedan **{remaining}** de **{historica_limit}** búsquedas históricas hoy. Actualiza a Pro para búsquedas ilimitadas.")
-
-@st.cache_data(ttl=60)
-def api_get(path, params=None):
-    headers = {}
-    token = st.session_state.get("token")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    try:
-        r = httpx.get(f"{API_URL}{path}", params=params, headers=headers, timeout=30)
-        r.raise_for_status()
-        return r.json()
-    except:
-        return None
-
-def api_post(path, json_data=None):
-    headers = {}
-    token = st.session_state.get("token")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    try:
-        r = httpx.post(f"{API_URL}{path}", json=json_data, headers=headers, timeout=30)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        return None
 
 with st.container():
     st.markdown('<div class="card"><h3>🔧 Filtros de Búsqueda</h3>', unsafe_allow_html=True)

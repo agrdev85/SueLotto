@@ -1,10 +1,11 @@
 import json
 import re
+from collections import Counter
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, and_, or_, cast, String
 from typing import Optional
 from datetime import date, timedelta
-from backend.models import Resultado, Charada, Adivinanza, PosibleSalir
+from backend.models import Resultado, Charada, Adivinanza, PosibleSalir, OtherGameResult
 
 
 def bulk_insert_resultados(db: Session, resultados: list[dict]):
@@ -68,11 +69,14 @@ def get_resultados_historicos(
     return results, total
 
 
-def get_rango_fechas(db: Session, juego: str):
-    result = db.query(
+def get_rango_fechas(db: Session, juego: Optional[str] = None):
+    query = db.query(
         func.min(Resultado.fecha).label("min_fecha"),
         func.max(Resultado.fecha).label("max_fecha"),
-    ).filter(Resultado.juego == juego).first()
+    )
+    if juego:
+        query = query.filter(Resultado.juego == juego)
+    result = query.first()
     return result.min_fecha, result.max_fecha
 
 
@@ -90,12 +94,13 @@ def _extraer_pares(r):
     return pares
 
 
-def get_frecuencias(db: Session, juego: str, sorteo: Optional[str] = None, dias: int = 30):
+def get_frecuencias(db: Session, juego: Optional[str] = None, sorteo: Optional[str] = None, dias: int = 30):
     desde = date.today() - timedelta(days=dias)
-    query = db.query(Resultado).filter(
-        Resultado.juego == juego,
-        Resultado.fecha >= desde,
-    )
+    query = db.query(Resultado).with_entities(
+        Resultado.n1, Resultado.n2, Resultado.n3, Resultado.n4
+    ).filter(Resultado.fecha >= desde)
+    if juego:
+        query = query.filter(Resultado.juego == juego)
     if sorteo:
         query = query.filter(Resultado.sorteo == sorteo)
 
@@ -114,8 +119,12 @@ def get_frecuencias(db: Session, juego: str, sorteo: Optional[str] = None, dias:
     return frecuencias
 
 
-def get_atrasados(db: Session, juego: str, sorteo: Optional[str] = None):
-    query = db.query(Resultado).filter(Resultado.juego == juego)
+def get_atrasados(db: Session, juego: Optional[str] = None, sorteo: Optional[str] = None):
+    query = db.query(Resultado).with_entities(
+        Resultado.n1, Resultado.n2, Resultado.n3, Resultado.n4, Resultado.fecha
+    )
+    if juego:
+        query = query.filter(Resultado.juego == juego)
     if sorteo:
         query = query.filter(Resultado.sorteo == sorteo)
 
@@ -141,6 +150,25 @@ def get_atrasados(db: Session, juego: str, sorteo: Optional[str] = None):
 
     return sorted(atrasados, key=lambda x: x["dias_sin_salir"], reverse=True)
 
+
+def get_frecuencia_digitos(db: Session, dias: int = 90):
+    """Frecuencia de cada dígito 0-9 en TODOS los juegos Florida."""
+    desde = date.today() - timedelta(days=dias)
+    resultados = db.query(Resultado).filter(Resultado.fecha >= desde).all()
+
+    digitos = Counter()
+    for r in resultados:
+        digitos[r.n1] += 1
+        digitos[r.n2] += 1
+        digitos[r.n3] += 1
+        if r.n4 is not None:
+            digitos[r.n4] += 1
+
+    total = sum(digitos.values()) or 1
+    return [
+        {"digito": d, "frecuencia": c, "porcentaje": round(c / total * 100, 1)}
+        for d, c in sorted(digitos.items())
+    ]
 
 def search_charada(db: Session, texto: str):
     texto_limpio = re.sub(r"[^\w\sáéíóúñ]", " ", texto.lower())
@@ -226,3 +254,28 @@ def get_charada_enriquecida(db: Session, numero: Optional[int] = None):
             "palabras_clave": palabras_clave,
         })
     return result
+
+
+def bulk_insert_other_games(db: Session, games: list[dict]):
+    for g in games:
+        existing = db.query(OtherGameResult).filter(
+            OtherGameResult.game_name == g["game_name"],
+            OtherGameResult.fecha == g["fecha"],
+        ).first()
+        if not existing:
+            db.add(OtherGameResult(**g))
+    db.commit()
+
+
+def get_other_games(db: Session, limit: int = 10):
+    sub = db.query(
+        OtherGameResult.game_name,
+        func.max(OtherGameResult.fecha).label("max_fecha"),
+    ).group_by(OtherGameResult.game_name).subquery()
+    return db.query(OtherGameResult).join(
+        sub,
+        and_(
+            OtherGameResult.game_name == sub.c.game_name,
+            OtherGameResult.fecha == sub.c.max_fecha,
+        ),
+    ).order_by(OtherGameResult.game_name).limit(limit).all()

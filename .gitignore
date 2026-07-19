@@ -6,3 +6,10 @@ venv/
 *.egg-info/
 dist/
 build/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/*.log
+data/auto_update_status.json
+.history/

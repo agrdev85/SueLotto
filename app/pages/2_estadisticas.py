@@ -3,7 +3,7 @@ import httpx
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, timedelta
-import os
+import os, sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,27 +11,19 @@ API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Estadísticas - SueñaLotto", page_icon="📈", layout="wide")
 
-# Inline tier check
-def _check_tier():
-    token = st.session_state.get("token")
-    if not token:
-        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p><p style="color:#64748b;font-size:0.85rem;">💎 Suscríbete a <strong style="color:#fbbf24;">Pro</strong> para acceder.</p></div>', unsafe_allow_html=True)
-        st.stop()
-        return {}
-    try:
-        r = httpx.get(f"{API_URL}/api/auth/tier", headers={"Authorization": f"Bearer {token}"}, timeout=10)
-        if r.status_code != 200:
-            st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Error de autenticación</h2><p style="color:#94a3b8;">Vuelve a iniciar sesión.</p></div>', unsafe_allow_html=True)
-            st.stop()
-            return {}
-        return r.json()
-    except Exception:
-        st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">No se pudo verificar suscripción</h2><p style="color:#94a3b8;">¿Está el backend encendido?</p></div>', unsafe_allow_html=True)
-        st.stop()
-        return {}
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from app.shared import render_global_header, api_get, api_post, init_session_state
 
-_t = _check_tier()
-if _t.get("tier") not in ("pro", "lifetime"):
+init_session_state()
+
+if not st.session_state.get("user"):
+    st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p></div>', unsafe_allow_html=True)
+    st.stop()
+
+render_global_header()
+
+tier_info = api_get("/api/auth/tier")
+if not tier_info or tier_info.get("tier") not in ("pro", "lifetime"):
     st.markdown("""
     <div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:linear-gradient(135deg, #1e3a5f, #2d1b4e);border-radius:1rem;border:1px solid #4a3f6b;">
         <div style="font-size:3rem;margin-bottom:1rem;">🔒</div>
@@ -45,15 +37,6 @@ if _t.get("tier") not in ("pro", "lifetime"):
     </div>
     """, unsafe_allow_html=True)
     st.stop()
-
-st.markdown("""
-<style>
-    .stApp { background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%); }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1rem; }
-    .card h3 { color: #f1f5f9; }
-    .stat-value { font-size: 2rem; font-weight: 800; }
-</style>
-""", unsafe_allow_html=True)
 
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">📈 Estadísticas Detalladas</h1>', unsafe_allow_html=True)
 
@@ -152,34 +135,77 @@ st.markdown("---")
 
 st.markdown('<div class="card"><h3>🤖 Predicciones ML</h3>', unsafe_allow_html=True)
 preds = api_get("/api/estadisticas/predicciones", {"juego": juego_param, "sorteo": sorteo_param})
-if not preds:
+if not preds or not isinstance(preds, dict):
     st.info("⏳ Cargando datos...")
 else:
-    top_preds = preds[:10]
-    fig3 = px.bar(
-        x=[p["numero"] for p in top_preds],
-        y=[p["probabilidad"] for p in top_preds],
-        labels={"x": "Número", "y": "Probabilidad"},
-        color=[p["probabilidad"] for p in top_preds],
-        color_continuous_scale="RdYlGn",
-        text=[f"{p['probabilidad']*100:.1f}%" for p in top_preds],
-    )
-    fig3.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#94a3b8", height=400,
-        xaxis=dict(tickmode="linear", dtick=1),
-    )
-    fig3.update_traces(marker_line_color="#334155", marker_line_width=1,
-                       textposition="outside", textfont_color="#fbbf24")
-    st.plotly_chart(fig3, width='stretch')
+    digitos = preds.get("digitos", [])
+    pares = preds.get("pares", [])
 
-    st.markdown('<h4 style="color:#94a3b8;">Top 5 Predicciones</h4>', unsafe_allow_html=True)
-    cols = st.columns(5)
-    for i, p in enumerate(top_preds[:5]):
-        with cols[i]:
-            st.markdown(
-                f'<div style="text-align:center;background:#334155;border-radius:0.5rem;padding:1rem;">'
-                f'<div style="font-size:2rem;font-weight:800;color:#fbbf24;">{p["numero"]}</div>'
-                f'<div style="color:#22c55e;font-weight:600;">{p["probabilidad"]*100:.1f}%</div>'
-                f'</div>', unsafe_allow_html=True)
+    if digitos:
+        st.markdown('<h4 style="color:#fbbf24;">🎯 Dígitos más probables</h4>', unsafe_allow_html=True)
+        top_dig = digitos[:10]
+        fig3 = px.bar(
+            x=[f"{p['numero']:02d}" for p in top_dig],
+            y=[p["probabilidad"] * 100 for p in top_dig],
+            labels={"x": "Número", "y": "Probabilidad (%)"},
+            color=[p["probabilidad"] * 100 for p in top_dig],
+            color_continuous_scale="RdYlGn",
+            text=[f"{p['probabilidad']*100:.1f}%" for p in top_dig],
+        )
+        fig3.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#94a3b8", height=350,
+            xaxis=dict(tickmode="linear", dtick=1),
+        )
+        fig3.update_traces(marker_line_color="#334155", marker_line_width=1,
+                           textposition="outside", textfont_color="#fbbf24")
+        st.plotly_chart(fig3, width='stretch')
+
+        st.markdown('<h4 style="color:#94a3b8;">Top 5 Dígitos</h4>', unsafe_allow_html=True)
+        cols = st.columns(5)
+        for i, p in enumerate(digitos[:5]):
+            with cols[i]:
+                st.markdown(
+                    f'<div style="text-align:center;background:#334155;border-radius:0.5rem;padding:1rem;">'
+                    f'<div style="font-size:2rem;font-weight:800;color:#fbbf24;">{p["numero"]:02d}</div>'
+                    f'<div style="color:#22c55e;font-weight:600;">{p["probabilidad"]*100:.1f}%</div>'
+                    f'</div>', unsafe_allow_html=True)
+
+    if pares:
+        st.markdown(f'<h4 style="color:#fbbf24;margin-top:1.5rem;">🔗 Pares (Corridos) más probables</h4>', unsafe_allow_html=True)
+        top_pares = pares[:10]
+        fig4 = px.bar(
+            x=[f"{p['numero']:02d}" for p in top_pares],
+            y=[p["probabilidad"] * 100 for p in top_pares],
+            labels={"x": "Par (corrido)", "y": "Probabilidad (%)"},
+            color=[p["probabilidad"] * 100 for p in top_pares],
+            color_continuous_scale="Plasma",
+            text=[f"{p['probabilidad']*100:.1f}%" for p in top_pares],
+        )
+        fig4.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            font_color="#94a3b8", height=350,
+            xaxis=dict(tickmode="linear", dtick=1),
+        )
+        fig4.update_traces(marker_line_color="#334155", marker_line_width=1,
+                           textposition="outside", textfont_color="#fbbf24")
+        st.plotly_chart(fig4, width='stretch')
+
+        st.markdown('<h4 style="color:#94a3b8;">Top 5 Pares (Parlet)</h4>', unsafe_allow_html=True)
+        cols2 = st.columns(5)
+        for i, p in enumerate(pares[:5]):
+            with cols2[i]:
+                st.markdown(
+                    f'<div style="text-align:center;background:#334155;border-radius:0.5rem;padding:1rem;border:1px solid #a855f7;">'
+                    f'<div style="font-size:2rem;font-weight:800;color:#c084fc;">{p["numero"]:02d}</div>'
+                    f'<div style="color:#22c55e;font-weight:600;">{p["probabilidad"]*100:.1f}%</div>'
+                    f'</div>', unsafe_allow_html=True)
+
+    meta = preds.get("metadata", {})
+    if meta:
+        st.markdown(
+            f'<p style="color:#64748b;font-size:0.75rem;text-align:center;margin-top:1rem;">'
+            f'📊 {meta.get("juego","")} · {meta.get("sorteo","")} · {meta.get("fecha","")}'
+            f' · {meta.get("total_analizados",0)} pares analizados'
+            f'</p>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)

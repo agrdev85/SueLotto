@@ -1,9 +1,12 @@
 import json
+import math
 import os
+from collections import Counter
 from typing import Optional
 from sqlalchemy.orm import Session
 from datetime import date, timedelta
-from backend.crud import get_frecuencias, get_atrasados
+from backend.crud import get_frecuencias, get_atrasados, get_frecuencia_digitos
+from backend.models import Resultado
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
@@ -80,47 +83,207 @@ def procesar_secuencia(secuencia: list[int], tipo_matriz: str = "nueva") -> list
     return resultado
 
 
-def _score_numbers(db: Session, juego: str, sorteo: Optional[str], numeros: list[int], limite: int = 15) -> list[dict]:
-    """Score a list of numbers using frequency, recency, and ML predictions."""
-    frecuencias = get_frecuencias(db, juego, sorteo, 90)
-    atrasados = get_atrasados(db, juego, sorteo)
+SCORE_W_FREQ_MULTI = float(os.getenv("SCORE_W_FREQ_MULTI", os.getenv("SCORE_W_FREQ_90D", "0.15")))
+SCORE_W_REC_MULTI = float(os.getenv("SCORE_W_REC_MULTI", os.getenv("SCORE_W_RECENCIA", "0.30")))
+SCORE_W_FREQ_7D_MULTI = float(os.getenv("SCORE_W_FREQ_7D_MULTI", os.getenv("SCORE_W_FREQ_7D", "0.15")))
+SCORE_W_FREQ_DIGITOS = float(os.getenv("SCORE_W_FREQ_DIGITOS", "0.15"))
+SCORE_W_TREND = float(os.getenv("SCORE_W_TREND", "0.25"))
+SCORE_W_ML = float(os.getenv("SCORE_W_ML", "0.00"))
+SCORE_MIN_FREQ = int(os.getenv("SCORE_MIN_FREQ", "0"))
+SCORE_MAX_DAYS = int(os.getenv("SCORE_MAX_DAYS", "365"))
 
-    freq_map = {f["numero"]: f["frecuencia"] for f in frecuencias}
-    atraso_map = {a["numero"]: a["dias_sin_salir"] for a in atrasados}
 
-    max_freq = max(freq_map.values()) if freq_map else 1
-    max_atraso = max(atraso_map.values()) if atraso_map else 1
+def _extraer_todos_pares(r) -> list[int]:
+    digitos = [r.n1, r.n2, r.n3]
+    if r.n4 is not None:
+        digitos.append(r.n4)
+    pares = []
+    for i in range(len(digitos)):
+        for j in range(i + 1, len(digitos)):
+            pares.append(digitos[i] * 10 + digitos[j])
+            pares.append(digitos[j] * 10 + digitos[i])
+    return pares
 
-    from backend.lottery_analyzer import generar_predicciones
-    ml_preds = generar_predicciones(db, juego, sorteo)
-    ml_map = {p["numero"]: p["probabilidad"] for p in ml_preds} if ml_preds else {}
-    max_ml = max(ml_map.values()) if ml_map else 1
+
+def _get_trend_scores_multi(db: Session, juego: Optional[str], sorteo: Optional[str]) -> dict:
+    """Tendencia: cambio de frecuencia entre últimos 15d y los 15d anteriores (soporta multi-juego).
+    Usa SQL COUNT para evitar cargar filas."""
+    today = date.today()
+    from sqlalchemy import func as sqlfunc
+
+    def _count_pairs(desde, hasta=None):
+        q = db.query(Resultado.n1, Resultado.n2, Resultado.n3, Resultado.n4)
+        if hasta:
+            q = q.filter(Resultado.fecha.between(desde, hasta))
+        else:
+            q = q.filter(Resultado.fecha >= desde)
+        if juego:
+            q = q.filter(Resultado.juego == juego)
+        if sorteo:
+            q = q.filter(Resultado.sorteo == sorteo)
+        counter = Counter()
+        for r in q.all():
+            digits = [r.n1, r.n2, r.n3]
+            if r.n4 is not None:
+                digits.append(r.n4)
+            for i in range(len(digits)):
+                for j in range(i + 1, len(digits)):
+                    counter[digits[i] * 10 + digits[j]] += 1
+                    counter[digits[j] * 10 + digits[i]] += 1
+        return counter
+
+    recent = _count_pairs(today - timedelta(days=15))
+    previous = _count_pairs(today - timedelta(days=30), today - timedelta(days=15))
+
+    scores = {}
+    for num in range(100):
+        r = recent.get(num, 0)
+        p = previous.get(num, 0)
+        if p > 0:
+            scores[num] = (r - p) / (r + p) if r + p > 0 else 0
+        elif r > 0:
+            scores[num] = 1.0
+        else:
+            scores[num] = 0
+    return scores
+
+
+def _get_recency_weighted_multi(db: Session, juego: Optional[str], sorteo: Optional[str]) -> dict:
+    """Frecuencia multi-ventana con pesos de recencia: 7d×3, 30d×2, 90d×1. Soporta multi-juego.
+    Usa SQL para evitar cargar filas innecesarias."""
+    today = date.today()
+    combined = Counter()
+
+    def _accumulate(desde, weight):
+        q = db.query(Resultado.n1, Resultado.n2, Resultado.n3, Resultado.n4).filter(
+            Resultado.fecha >= desde)
+        if juego:
+            q = q.filter(Resultado.juego == juego)
+        if sorteo:
+            q = q.filter(Resultado.sorteo == sorteo)
+        for r in q.all():
+            digits = [r.n1, r.n2, r.n3]
+            if r.n4 is not None:
+                digits.append(r.n4)
+            for i in range(len(digits)):
+                for j in range(i + 1, len(digits)):
+                    combined[digits[i] * 10 + digits[j]] += weight
+                    combined[digits[j] * 10 + digits[i]] += weight
+
+    _accumulate(today - timedelta(days=7), 3.0)
+    _accumulate(today - timedelta(days=30), 2.0)
+    _accumulate(today - timedelta(days=90), 1.0)
+
+    max_c = max(combined.values()) if combined else 1
+    return {num: c / max_c for num, c in combined.items()}
+
+
+def _score_numbers(
+    db: Session, juego: str, sorteo: Optional[str],
+    numeros: list[int], limite: int = 15,
+    set_calientes: Optional[set] = None,
+    set_posibles: Optional[set] = None,
+) -> list[dict]:
+    """
+    Score matrix numbers using multi-game Florida lottery stats:
+      - Multi-game pair frequency (90 days across ALL Florida games)
+      - Multi-game recency (last appearance in ANY game)
+      - Multi-game 7-day frequency burst
+      - Digit-level frequency (0-9) across ALL games (orthogonal signal)
+      - ML probability (game-specific, default weight 0)
+    """
+    frec_multi = get_frecuencias(db, None, None, 90)
+    frec_7d_multi = get_frecuencias(db, None, None, 7)
+    atraso_multi = get_atrasados(db, None, None)
+    frec_digitos = get_frecuencia_digitos(db, 90)
+    trend_scores = _get_trend_scores_multi(db, juego, sorteo)
+    recency_weighted = _get_recency_weighted_multi(db, juego, sorteo)
+
+    freq_multi_map = {f["numero"]: f["frecuencia"] for f in frec_multi}
+    freq_7d_multi_map = {f["numero"]: f["frecuencia"] for f in frec_7d_multi}
+    atraso_multi_map = {a["numero"]: a["dias_sin_salir"] for a in atraso_multi}
+    digito_map = {d["digito"]: d["frecuencia"] for d in frec_digitos}
+
+    max_freq_multi = max(freq_multi_map.values()) if freq_multi_map else 1
+    max_freq_7d_multi = max(freq_7d_multi_map.values()) if freq_7d_multi_map else 1
+    max_digitos = max(digito_map.values()) if digito_map else 1
+
+    ml_map = {}
+    max_ml = 1
+    if SCORE_W_ML > 0:
+        from backend.lottery_analyzer import generar_predicciones
+        preds = generar_predicciones(db, juego, sorteo) or {}
+        ml_map = {p["numero"]: p["probabilidad"] for p in preds.get("digitos", [])}
+        max_ml = max(ml_map.values()) if ml_map else 1
+
+    cal_set = set_calientes or set()
+    pos_set = set_posibles or set()
 
     scored = []
     for n in numeros:
-        freq = freq_map.get(n, 0)
-        dias = atraso_map.get(n, 999)
-        ml_prob = ml_map.get(n, 0)
+        c = n % 100
 
-        freq_score = freq / max_freq
-        atraso_score = dias / max_atraso
-        ml_score = ml_prob / max_ml if max_ml else 0
+        freq_multi = freq_multi_map.get(c, 0)
+        freq_7d_multi = freq_7d_multi_map.get(c, 0)
+        dias = atraso_multi_map.get(c, 999)
+        ml_prob = ml_map.get(c, 0)
+        trend_score = trend_scores.get(c, 0)
+        recency_weighted_score = recency_weighted.get(c, 0)
 
-        if freq == 0 and dias > 365:
+        if freq_multi < SCORE_MIN_FREQ and dias > SCORE_MAX_DAYS:
             continue
 
-        composite = 0.25 * freq_score + 0.35 * atraso_score + 0.40 * ml_score
+        d1, d2 = c // 10, c % 10
+        digito_score = (digito_map.get(d1, 0) + digito_map.get(d2, 0)) / (2 * max_digitos) if max_digitos else 0
+
+        freq_multi_norm = freq_multi / max_freq_multi if max_freq_multi else 0
+        freq_7d_norm = freq_7d_multi / max_freq_7d_multi if max_freq_7d_multi else 0
+        recencia_score = 1 / max(math.sqrt(1 + dias), 1)
+        ml_score = ml_prob / max_ml if max_ml else 0
+
+        composite = (
+            SCORE_W_FREQ_MULTI * freq_multi_norm
+            + SCORE_W_REC_MULTI * recencia_score
+            + SCORE_W_FREQ_7D_MULTI * freq_7d_norm
+            + SCORE_W_FREQ_DIGITOS * digito_score
+            + SCORE_W_TREND * trend_score
+            + SCORE_W_ML * ml_score
+        )
+
+        es_caliente = n in cal_set
+        es_posible = n in pos_set
+        if es_caliente and es_posible:
+            categoria = "ambos"
+            composite += 0.45
+        elif es_caliente:
+            categoria = "caliente"
+            composite += 0.35
+        elif es_posible:
+            categoria = "posible"
+            composite += 0.34
+        else:
+            categoria = "discriminante"
 
         scored.append({
             "numero": n,
             "score": round(composite, 4),
-            "frecuencia": freq,
+            "frecuencia": freq_multi,
+            "frecuencia_7d": freq_7d_multi,
             "dias_sin_salir": dias,
+            "tendencia": round(trend_score, 4),
+            "recencia_ponderada": round(recency_weighted_score, 4),
+            "digito_score": round(digito_score, 4),
             "probabilidad_ml": round(ml_prob, 4),
+            "categoria": categoria,
         })
 
     scored.sort(key=lambda x: x["score"], reverse=True)
     return scored[:limite]
+
+
+def _charada_a_matriz(nums: list[int]) -> set[int]:
+    """Convert charada numbers (0-99) to matrix numbers (1-100)."""
+    return {n if n > 0 else 100 for n in nums}
 
 
 def comparar_y_reducir(
@@ -137,8 +300,8 @@ def comparar_y_reducir(
     calientes = calientes or []
     posibles = posibles or []
 
-    set_calientes = set(calientes)
-    set_posibles = set(posibles)
+    set_calientes = _charada_a_matriz(calientes)
+    set_posibles = _charada_a_matriz(posibles)
     set_ambos = set_calientes & set_posibles
     set_alrededor = set(alrededor)
 
@@ -155,7 +318,7 @@ def comparar_y_reducir(
         "interseccion_posibles": interseccion_posibles,
         "interseccion_ambos": interseccion_ambos,
         "discriminante": discriminante,
-        "discriminante_scored": [],
+        "scored_final": [],
         "total_alrededor": len(alrededor),
         "total_interseccion_calientes": len(interseccion_calientes),
         "total_interseccion_posibles": len(interseccion_posibles),
@@ -163,7 +326,11 @@ def comparar_y_reducir(
         "total_discriminante": len(discriminante),
     }
 
-    if db and juego and discriminante:
-        result["discriminante_scored"] = _score_numbers(db, juego, sorteo, discriminante, limite)
+    if db and juego:
+        result["scored_final"] = _score_numbers(
+            db, juego, sorteo, alrededor, limite,
+            set_calientes=set_calientes,
+            set_posibles=set_posibles,
+        )
 
     return result

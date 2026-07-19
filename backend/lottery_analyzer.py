@@ -1,9 +1,10 @@
 from datetime import date, timedelta
 from typing import Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from backend.models import Resultado
 from backend.crud import get_frecuencias, get_atrasados
+import json
 
 
 def get_resultados_df(db: Session, juego: str, sorteo: str = None, dias: int = 365):
@@ -67,115 +68,195 @@ def _build_features(df, pos: str):
     return pd.DataFrame(features), np.array(targets)
 
 
-def generar_predicciones(db: Session, juego: Optional[str] = None, sorteo: str = None, use_llm: bool = True):
-    if not juego:
-        return _fallback_prediction([], [])
+def _get_recency_weighted_frequencies(db: Session, juego: str, sorteo: str = None) -> dict:
+    """Calcula frecuencias ponderadas por recencia: últimos 7d peso 3x, 30d peso 2x, 90d peso 1x."""
+    from collections import Counter
+    today = date.today()
 
-    min_count = db.query(Resultado).filter(
+    weight_schemes = [
+        (7, 3.0),
+        (30, 2.0),
+        (90, 1.0),
+    ]
+
+    combined = Counter()
+    total_weight = 0
+    for dias, weight in weight_schemes:
+        q = db.query(Resultado).filter(
+            Resultado.juego == juego,
+            Resultado.fecha >= today - timedelta(days=dias),
+        )
+        if sorteo:
+            q = q.filter(Resultado.sorteo == sorteo)
+        for r in q.all():
+            for par in _extraer_todos_pares(r):
+                combined[par] += weight
+        total_weight += weight
+
+    max_count = max(combined.values()) if combined else 1
+    return {num: count / max_count for num, count in combined.items()}
+
+
+def _get_trend_scores(db: Session, juego: str, sorteo: str = None) -> dict:
+    """Calcula tendencia: diferencia de frecuencia entre últimos 15d y los 15d anteriores."""
+    from collections import Counter
+    today = date.today()
+
+    recent = Counter()
+    q = db.query(Resultado).filter(
         Resultado.juego == juego,
-        Resultado.fecha >= date.today() - timedelta(days=365),
-    ).count()
+        Resultado.fecha >= today - timedelta(days=15),
+    )
+    if sorteo:
+        q = q.filter(Resultado.sorteo == sorteo)
+    for r in q.all():
+        for par in _extraer_todos_pares(r):
+            recent[par] += 1
 
-    frecuencias = calcular_frecuencias(db, juego, sorteo, 90)
-    atrasados = calcular_atrasados(db, juego, sorteo)
+    previous = Counter()
+    q = db.query(Resultado).filter(
+        Resultado.juego == juego,
+        Resultado.fecha.between(today - timedelta(days=30), today - timedelta(days=15)),
+    )
+    if sorteo:
+        q = q.filter(Resultado.sorteo == sorteo)
+    for r in q.all():
+        for par in _extraer_todos_pares(r):
+            previous[par] += 1
 
-    if use_llm and min_count >= 20:
-        llm_preds = _generar_predicciones_llm(db, juego, sorteo, frecuencias, atrasados)
-        if llm_preds:
-            return llm_preds
-
-    if min_count < 60:
-        return _fallback_prediction(frecuencias, atrasados)
-
-    try:
-        import pandas as pd
-        from sklearn.ensemble import RandomForestClassifier
-    except ImportError:
-        return _fallback_prediction(frecuencias, atrasados)
-
-    df = get_resultados_df(db, juego, sorteo, dias=365)
-
-    predicciones_totales = []
-    for pos in ["n1", "n2", "n3"]:
-        X, y = _build_features(df, pos)
-        if len(X) < 10:
-            continue
-
-        model = RandomForestClassifier(n_estimators=50, max_depth=8, random_state=42, n_jobs=-1)
-        model.fit(X, y)
-
-        ultimo = df.iloc[-1]
-        last_feat = {
-            "sorteo_e": 1 if ultimo["sorteo"] == "E" else 0,
-            "dia_semana": date.today().weekday(),
-            "mes": date.today().month,
-        }
-        for p in ["n1", "n2", "n3"]:
-            window = df[p].iloc[-30:]
-            last_feat[f"{p}_mean"] = window.mean()
-            last_feat[f"{p}_std"] = window.std()
-            last_feat[f"{p}_last"] = window.iloc[-1]
-            last_feat[f"{p}_min"] = window.min()
-            last_feat[f"{p}_max"] = window.max()
-
-        X_pred = pd.DataFrame([last_feat])
-        probs = model.predict_proba(X_pred)[0]
-
-        for num, prob in enumerate(probs):
-            if prob > 0:
-                predicciones_totales.append({"numero": num, "probabilidad": round(float(prob), 4)})
-
-    if not predicciones_totales:
-        return _fallback_prediction(frecuencias, atrasados)
-
-    df_pred = pd.DataFrame(predicciones_totales)
-    df_pred = df_pred.groupby("numero", as_index=False)["probabilidad"].mean()
-    df_pred = df_pred.sort_values("probabilidad", ascending=False)
-
-    return df_pred.to_dict("records")
+    scores = {}
+    for num in range(100):
+        r = recent.get(num, 0)
+        p = previous.get(num, 0)
+        if p > 0:
+            scores[num] = (r - p) / (r + p) if r + p > 0 else 0
+        elif r > 0:
+            scores[num] = 1.0
+        else:
+            scores[num] = 0
+    return scores
 
 
-def _generar_predicciones_llm(db: Session, juego: str, sorteo: str, frecuencias: list, atrasados: list) -> list:
+def _extraer_todos_pares(r) -> list[int]:
+    """Extrae TODAS las combinaciones de pares posibles de un resultado."""
+    pares = []
+    digitos = [r.n1, r.n2, r.n3]
+    if r.n4 is not None:
+        digitos.append(r.n4)
+    for i in range(len(digitos)):
+        for j in range(i + 1, len(digitos)):
+            pares.append(digitos[i] * 10 + digitos[j])
+            pares.append(digitos[j] * 10 + digitos[i])
+    return pares
+
+
+def _extraer_digitos_individuales(r) -> list[int]:
+    """Extrae los dígitos individuales de un resultado."""
+    digitos = [r.n1, r.n2, r.n3]
+    if r.n4 is not None:
+        digitos.append(r.n4)
+    return digitos
+
+
+def _predecir_pares_por_posicion(db: Session, juego: str, sorteo: str = None) -> list:
+    """Predice los pares (corridos 00-99) más probables combinando análisis por posición."""
     import pandas as pd
-    from backend.llm_client import build_prediction_prompt, consultar_json, parse_predicciones_llm
+    today = date.today()
 
-    historicos = get_resultados_df(db, juego, sorteo, dias=90)
-    if len(historicos) < 10:
+    posiciones = ["n1", "n2", "n3", "n4"] if juego == "Pick 4" else ["n1", "n2", "n3"]
+    freq_por_pos = {}
+    for pos in posiciones:
+        q = db.query(
+            getattr(Resultado, pos),
+            func.count(Resultado.id),
+        ).filter(
+            Resultado.juego == juego,
+            Resultado.fecha >= today - timedelta(days=90),
+        )
+        if sorteo:
+            q = q.filter(Resultado.sorteo == sorteo)
+        q = q.group_by(getattr(Resultado, pos)).order_by(func.count(Resultado.id).desc()).limit(10)
+        freq_por_pos[pos] = {row[0]: row[1] for row in q.all()}
+
+    predicciones = []
+    for i, pos_a in enumerate(posiciones):
+        for pos_b in posiciones[i + 1:]:
+            for dig_a, freq_a in freq_por_pos[pos_a].items():
+                for dig_b, freq_b in freq_por_pos[pos_b].items():
+                    par = dig_a * 10 + dig_b
+                    prob = (freq_a + freq_b) / 180.0
+                    predicciones.append({"numero": par, "probabilidad": round(prob, 4), "tipo": "par_posicional"})
+
+    if not predicciones:
         return []
 
-    historicos_dict = []
-    for _, row in historicos.tail(60).iterrows():
-        h = {
-            "fecha": row["fecha"].isoformat() if hasattr(row["fecha"], "isoformat") else str(row["fecha"]),
-            "n1": int(row["n1"]),
-            "n2": int(row["n2"]),
-            "n3": int(row["n3"]),
-        }
-        if "n4" in row.index and pd.notna(row["n4"]):
-            h["n4"] = int(row["n4"])
-        historicos_dict.append(h)
-
-    prompt = build_prediction_prompt(juego, historicos_dict, frecuencias, atrasados)
-    response = consultar_json(prompt)
-    return parse_predicciones_llm(response)
+    df_pred = pd.DataFrame(predicciones)
+    df_pred = df_pred.groupby("numero", as_index=False)["probabilidad"].mean()
+    max_prob = df_pred["probabilidad"].max()
+    if max_prob > 0:
+        df_pred["probabilidad"] = df_pred["probabilidad"] / max_prob
+    df_pred = df_pred.sort_values("probabilidad", ascending=False)
+    return df_pred.head(20).to_dict("records")
 
 
-def _fallback_prediction(frecuencias: list, atrasados: list):
+def _fallback_prediction_mejorado(frecuencias: list, atrasados: list, db: Session = None, juego: str = None, sorteo: str = None):
+    """Versión mejorada: combina frecuencia ponderada, tendencia, atraso y factor de recencia."""
+    from collections import Counter
+
     freq_map = {f["numero"]: f["frecuencia"] for f in frecuencias}
     atraso_map = {a["numero"]: a["dias_sin_salir"] for a in atrasados}
 
     max_freq = max(freq_map.values()) if freq_map else 1
     max_atraso = max(atraso_map.values()) if atraso_map else 1
 
+    recency_scores = {}
+    trend_scores = {}
+    if db and juego:
+        recency_scores = _get_recency_weighted_frequencies(db, juego, sorteo)
+        trend_scores = _get_trend_scores(db, juego, sorteo)
+
     predicciones = []
     for num in range(100):
         freq_score = freq_map.get(num, 0) / max_freq
-        atraso_score = atraso_map.get(num, 0) / max_atraso
-        prob = 0.5 * freq_score + 0.5 * atraso_score
+        atraso_score = atraso_map.get(num, 0) / max(max_atraso, 1)
+
+        recency_score = recency_scores.get(num, 0)
+        trend_score = trend_scores.get(num, 0)
+
+        prob = (
+            0.30 * freq_score +
+            0.25 * atraso_score +
+            0.25 * recency_score +
+            0.20 * trend_score
+        )
         if prob > 0:
-            predicciones.append({"numero": num, "probabilidad": round(prob, 4)})
+            predicciones.append({"numero": num, "probabilidad": round(prob, 4), "tipo": "hibrida"})
 
     return sorted(predicciones, key=lambda x: x["probabilidad"], reverse=True)
+
+
+def generar_predicciones(db: Session, juego: Optional[str] = None, sorteo: str = None, use_llm: bool = True):
+    if not juego:
+        return []
+    import pandas as pd
+
+    frecuencias = calcular_frecuencias(db, juego, sorteo, 90)
+    atrasados = calcular_atrasados(db, juego, sorteo)
+
+    digit_preds = _fallback_prediction_mejorado(frecuencias, atrasados, db, juego, sorteo)
+    pair_preds = _predecir_pares_por_posicion(db, juego, sorteo)
+
+    result = {
+        "digitos": digit_preds[:20] if digit_preds else [],
+        "pares": pair_preds if pair_preds else [],
+        "metadata": {
+            "juego": juego,
+            "sorteo": sorteo or "ambos",
+            "fecha": date.today().isoformat(),
+            "total_analizados": len(frecuencias),
+        },
+    }
+    return result
 
 
 def calcular_numeros_calientes(

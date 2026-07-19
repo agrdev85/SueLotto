@@ -62,6 +62,10 @@ class User(Base):
     tier_expires = Column(Date, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     is_active = Column(Boolean, default=True)
+    email_verified = Column(Boolean, default=False)
+    email_verification_token = Column(String(200), nullable=True)
+    password_reset_token = Column(String(200), nullable=True)
+    password_reset_expires = Column(DateTime, nullable=True)
 
 
 class Bet(Base):
@@ -94,4 +98,20 @@ class UserUsage(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "fecha", name="uq_user_usage"),
+    )
+
+
+class OtherGameResult(Base):
+    __tablename__ = "other_games"
+
+    id = Column(Integer, primary_key=True, index=True)
+    game_name = Column(String(50), nullable=False, index=True)
+    fecha = Column(Date, nullable=False, index=True)
+    numbers = Column(String(200), nullable=False)
+    extra = Column(String(100), nullable=True)
+    drawing_date = Column(String(100), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("game_name", "fecha", name="uq_other_game"),
     )
