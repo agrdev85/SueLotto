@@ -8,7 +8,7 @@ load_dotenv()
 
 st.set_page_config(page_title="Mis Jugadas - SueñaLotto", page_icon="📝", layout="wide")
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from app.shared import render_global_header, api_get, api_post, init_session_state
 
 init_session_state()
@@ -184,7 +184,7 @@ with col_form:
             fijo_str = ",".join(str(d["fijo"]) for d in per_number_data)
             corrido_str = ",".join(str(d["corrido"]) for d in per_number_data)
             candado_str = ",".join(str(d["n"]) for d in per_number_data if d["candado"])
-            api_post("/api/bets", {
+            res = api_post("/api/bets", {
                 "fecha": b_fecha.isoformat(),
                 "numeros": numeros_str,
                 "fijo": fijo_str,
@@ -194,8 +194,11 @@ with col_form:
                 "precio": total_precio,
                 "descripcion": b_desc,
             })
-            st.success("✅ Jugada guardada")
-            st.rerun()
+            if res:
+                st.success("✅ Jugada guardada")
+                st.rerun()
+            else:
+                st.error("❌ No se pudo guardar la jugada. Revisa la conexión e inténtalo de nuevo.")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ─── History Column ───

@@ -121,6 +121,7 @@ class CompararRequest(BaseModel):
     juego: Optional[str] = None
     sorteo: Optional[str] = None
     limite: int = 15
+    modo: str = "reducir"
 
 
 class AlrededorResponse(BaseModel):

@@ -2,20 +2,88 @@ import streamlit as st
 import httpx
 import os
 import time
+import base64
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 
 API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
+TOKEN_REFRESH_MARGIN = 300
 
-def api_get(path, params=None):
+
+def _decode_jwt_payload(token: str) -> dict:
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return {}
+        payload = parts[1]
+        padded = payload + "=" * (4 - len(payload) % 4)
+        return json.loads(base64.urlsafe_b64decode(padded))
+    except Exception:
+        return {}
+
+
+def _is_token_expired(token: str, margin: int = TOKEN_REFRESH_MARGIN) -> bool:
+    payload = _decode_jwt_payload(token)
+    exp = payload.get("exp")
+    if not exp:
+        return True
+    return time.time() + margin >= exp
+
+
+def _refresh_token():
+    token = st.session_state.get("token")
+    if not token:
+        return False
+    try:
+        r = httpx.post(
+            f"{API_URL}/api/auth/refresh",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            st.session_state["token"] = data["access_token"]
+            st.session_state["last_refresh"] = time.time()
+            return True
+    except Exception:
+        pass
+    for k in ["token", "user", "login_time", "last_refresh"]:
+        st.session_state.pop(k, None)
+    st.rerun()
+    return False
+
+
+def _ensure_fresh_token():
+    if not st.session_state.get("token"):
+        return
+    if st.session_state.get("_refreshing"):
+        return
+    if _is_token_expired(st.session_state["token"]):
+        st.session_state["_refreshing"] = True
+        try:
+            _refresh_token()
+        finally:
+            st.session_state["_refreshing"] = False
+
+
+def _make_headers():
     headers = {}
     token = st.session_state.get("token")
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        _ensure_fresh_token()
+        token = st.session_state.get("token")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def api_get(path, params=None):
+    headers = _make_headers()
     try:
-        r = httpx.get(f"{API_URL}{path}", params=params, headers=headers, timeout=15)
+        r = httpx.get(f"{API_URL}{path}", params=params, headers=headers, timeout=20)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPStatusError as e:
@@ -24,7 +92,7 @@ def api_get(path, params=None):
             st.toast("⏳ Demasiadas solicitudes. Espera un momento.", icon="⚠️")
         elif e.response.status_code == 401:
             st.toast("🔒 Sesión expirada. Vuelve a iniciar sesión.", icon="⚠️")
-            for k in ["token", "user", "login_time"]:
+            for k in ["token", "user", "login_time", "last_refresh"]:
                 st.session_state.pop(k, None)
         return None
     except httpx.ConnectError:
@@ -35,12 +103,9 @@ def api_get(path, params=None):
 
 
 def api_post(path, json_data=None):
-    headers = {}
-    token = st.session_state.get("token")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    headers = _make_headers()
     try:
-        r = httpx.post(f"{API_URL}{path}", json=json_data or {}, headers=headers, timeout=15)
+        r = httpx.post(f"{API_URL}{path}", json=json_data or {}, headers=headers, timeout=20)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPStatusError as e:
@@ -49,7 +114,7 @@ def api_post(path, json_data=None):
             st.toast("⏳ Demasiadas solicitudes. Espera un momento.", icon="⚠️")
         elif e.response.status_code == 401:
             st.toast("🔒 Sesión expirada. Vuelve a iniciar sesión.", icon="⚠️")
-            for k in ["token", "user", "login_time"]:
+            for k in ["token", "user", "login_time", "last_refresh"]:
                 st.session_state.pop(k, None)
         return None
     except httpx.ConnectError:
@@ -66,7 +131,7 @@ def _extract_error(e):
         return str(e)
 
 
-SESSION_MAX_SECS = 86400  # 24h absolute
+SESSION_MAX_SECS = 86400
 
 def init_session_state():
     st.session_state.setdefault("token", None)
@@ -77,13 +142,14 @@ def init_session_state():
     st.session_state.setdefault("view_mode", "cards")
     st.session_state.setdefault("sorteo_sort_asc", False)
     st.session_state.setdefault("sorteo_filter", "all")
+    st.session_state.setdefault("_refreshing", False)
 
 def check_session_expired():
     if not st.session_state.get("user"):
         return
     login_time = st.session_state.get("login_time")
     if login_time and time.time() - login_time > SESSION_MAX_SECS:
-        for k in ["token", "user", "login_time", "last_activity", "theme", "view_mode", "sorteo_sort_asc", "sorteo_filter"]:
+        for k in ["token", "user", "login_time", "last_activity", "last_refresh", "theme", "view_mode", "sorteo_sort_asc", "sorteo_filter"]:
             st.session_state.pop(k, None)
         st.rerun()
     st.session_state["last_activity"] = time.time()
@@ -118,7 +184,9 @@ def get_theme_css():
     .info-box { background: rgba(59,130,246,0.08) !important; border-color: rgba(59,130,246,0.3) !important; }
     .scraped-game-card { background: rgba(255,255,255,0.95) !important; border-color: rgba(203,213,225,0.8) !important; }
     .scraped-game-card .game-name { color: #0f172a !important; }
+    .scraped-game-card .game-date { color: #64748b !important; }
     .scraped-game-card .game-numbers span { color: #0f172a !important; }
+    .scraped-game-card .game-bonus-label { color: #64748b !important; }
     .day-divider .day-label { color: #0f172a !important; }
     .day-divider .day-label small { color: #64748b !important; }
     .sorteo-card .fecha-text { color: #64748b !important; }
@@ -259,6 +327,100 @@ def render_global_header():
         )
     with hc[4]:
         if st.button("🚪", key="global_logout_btn", use_container_width=True):
-            for k in ["token", "user", "login_time", "last_activity", "theme", "view_mode", "sorteo_sort_asc", "sorteo_filter"]:
+            for k in ["token", "user", "login_time", "last_activity", "last_refresh", "theme", "view_mode", "sorteo_sort_asc", "sorteo_filter"]:
                 st.session_state.pop(k, None)
             st.rerun()
+
+    render_scroll_to_top_button()
+
+
+def render_scroll_to_top_button():
+    """Botón flotante 'volver arriba' — animado con CSS puro, JS solo para scroll."""
+    st.html(
+        """
+<style>
+    #st-top-btn {
+        position: fixed; right: 1.1rem; bottom: 5.4rem; z-index: 9999;
+        width: 3rem; height: 3rem; border-radius: 50%; border: none; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        background: linear-gradient(160deg, rgba(30,41,59,0.96), rgba(15,23,42,0.96));
+        color: #fbbf24; font-size: 1.15rem; line-height: 1;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+        opacity: 0; transform: translateY(26px) scale(0.75);
+        pointer-events: none;
+        transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+        animation: stTopGlow 3.6s ease-in-out infinite;
+    }
+    #st-top-btn::before {
+        content: ""; position: absolute; inset: -2px; border-radius: inherit; padding: 2px;
+        background: conic-gradient(from 210deg, #fbbf24, #8b5cf6, #3b82f6, #ef4444, #fbbf24);
+        -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor; mask-composite: exclude;
+        animation: stTopRotate 7s linear infinite; pointer-events: none;
+    }
+    #st-top-btn.visible { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+    #st-top-btn.leaving { opacity: 0; transform: translateY(26px) scale(0.6); pointer-events: none; }
+    #st-top-btn:hover { color: #fff; box-shadow: 0 0 30px rgba(139,92,246,0.5); }
+    #st-top-btn.burst { animation: stTopBurst 0.55s ease-out; }
+    #st-top-btn .arrow { display: inline-block; transition: transform 0.3s ease; }
+    #st-top-btn:hover .arrow { transform: translateY(-3px); }
+    @keyframes stTopRotate { to { filter: hue-rotate(360deg); } }
+    @keyframes stTopGlow { 0%, 100% { box-shadow: 0 0 0 rgba(251,191,36,0); } 50% { box-shadow: 0 0 30px rgba(251,191,36,0.35); } }
+    @keyframes stTopBurst {
+        0% { transform: scale(1); }
+        35% { transform: scale(1.35) rotate(8deg); box-shadow: 0 0 60px rgba(251,191,36,0.7); }
+        100% { transform: scale(1); }
+    }
+</style>
+<button id="st-top-btn" aria-label="Volver arriba" title="Volver arriba"><span class="arrow">↑</span></button>
+<script>
+(function () {
+    var btn = document.getElementById('st-top-btn');
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    var selectors = ['[data-testid="stMain"]', '[data-testid="stAppViewContainer"]', '[data-testid="stApp"]', '[data-testid="stMainBlockContainer"]'];
+    var els = selectors.map(function (s) { return document.querySelector(s); }).filter(Boolean);
+    function currentTop() {
+        var top = window.pageYOffset || document.documentElement.scrollTop || 0;
+        for (var i = 0; i < els.length; i++) { if (els[i].scrollTop > top) top = els[i].scrollTop; }
+        return top;
+    }
+    function scrollToTop() {
+        var done = false;
+        for (var i = 0; i < els.length; i++) {
+            if (els[i].scrollTop > 0) { els[i].scrollTo({ top: 0, behavior: 'smooth' }); done = true; }
+        }
+        if (!done) { window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    }
+    var ticking = false;
+    function onScroll() {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(function () {
+            if (currentTop() > 250) { btn.classList.add('visible'); btn.classList.remove('leaving'); }
+            else { btn.classList.remove('visible'); }
+            ticking = false;
+        });
+    }
+    els.forEach(function (el) { el.addEventListener('scroll', onScroll, { passive: true }); });
+    window.addEventListener('scroll', onScroll, { passive: true });
+    if (currentTop() > 250) btn.classList.add('visible');
+    btn.addEventListener('click', function () {
+        btn.classList.add('burst');
+        btn.classList.add('leaving');
+        setTimeout(function () { btn.classList.remove('burst'); }, 600);
+        scrollToTop();
+        setTimeout(function () { btn.classList.remove('leaving'); }, 900);
+    });
+})();
+</script>
+""",
+        unsafe_allow_javascript=True,
+    )
+
+
+def go_to_planes():
+    """Redirige a la página principal (Sorteos) y baja hasta la sección de
+    planes/pago. Usa st.switch_page (mantiene la sesión iniciada)."""
+    st.session_state["_go_to_planes"] = True
+    st.switch_page("dashboard.py")

@@ -75,6 +75,38 @@ def _update_posibles_salir():
         db.close()
 
 
+def es_desactualizado(dias: int = 1) -> bool:
+    """Devuelve True si alguno de los juegos principales tiene resultados
+    atrasados más de `dias` respecto a hoy (p. ej. un día completo)."""
+    from backend.crud import get_rango_fechas
+    db = SessionLocal()
+    try:
+        for juego in ["Pick 3", "Pick 4"]:
+            _, max_fecha = get_rango_fechas(db, juego)
+            if max_fecha is None or (date.today() - max_fecha).days >= dias:
+                return True
+        return False
+    except Exception as e:
+        _log(f"[ERROR] verificando desactualización: {e}")
+        return True
+    finally:
+        db.close()
+
+
+def catch_up_if_stale(dias: int = 1) -> bool:
+    """Si los históricos están atrasados y no hay una actualización en curso,
+    ejecuta run_update(). Devuelve True si se ejecutó la actualización."""
+    if _running.is_set():
+        _log("Actualización ya en curso — omitiendo recuperación")
+        return False
+    if not es_desactualizado(dias):
+        _log("Históricos al día — no hace falta recuperación")
+        return False
+    _log("Históricos desactualizados — ejecutando recuperación")
+    run_update()
+    return True
+
+
 def run_update():
     if _running.is_set():
         _log("Actualización ya en curso — ignorando solicitud")
@@ -123,8 +155,18 @@ def run_update():
         _running.clear()
 
 
+# Horas (hora local del servidor; en Render = UTC) en que se ejecuta una
+# actualización completa. Cada 3 horas para capturar el sorteo MIDDAY
+# (~17:30–18:30 UTC) el mismo día y el EVENING (~00:57 UTC) a la madrugada.
+# Horas UTC para captura robusta:
+# - 01, 02, 03: ventana crítica EVENING (9pm ET = 01-02 UTC según DST)
+# - 07, 10, 13: captura MIDDAY (1:30pm ET ≈ 17:30-18:30 UTC) al día siguiente
+# - 16, 19, 22: refuerzo diario
+UPDATE_HOURS = [1, 2, 3, 7, 10, 13, 16, 19, 22]
+
+
 def _scheduler_loop():
-    _log("Scheduler iniciado — esperando hora de ejecución (05:00–08:00)")
+    _log("Scheduler iniciado — actualización cada 3 h " + str(UPDATE_HOURS) + " + chequeo horario de recuperación")
     global _last_run_hour
     _last_run_hour = -1
     while True:
@@ -132,16 +174,15 @@ def _scheduler_loop():
             now = datetime.now()
             hour = now.hour
             minute = now.minute
-            is_update_hour = hour in (5, 6, 7, 8)
 
-            if is_update_hour and minute == 0:
-                if hour != _last_run_hour:
+            if minute == 0 and hour != _last_run_hour:
+                _last_run_hour = hour
+                if hour in UPDATE_HOURS:
                     _log(f"Ejecutando actualización programada — {hour}:00")
                     run_update()
-                    _last_run_hour = hour
-
-            if not is_update_hour:
-                _last_run_hour = -1
+                else:
+                    _log(f"Comprobando desactualización — {hour}:00")
+                    catch_up_if_stale()
 
         except Exception as e:
             _log(f"[ERROR] en loop scheduler: {e}")

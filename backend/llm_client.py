@@ -6,7 +6,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODELS = [
+    os.getenv("GEMINI_MODEL", ""),
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+]
+GOOGLE_AI_TIMEOUT_MS = int(os.getenv("GOOGLE_AI_TIMEOUT_MS", "8000"))
 
 
 def consultar(prompt: str, model: str = None) -> str:
@@ -14,17 +19,28 @@ def consultar(prompt: str, model: str = None) -> str:
     if not key:
         return ""
 
-    model_name = model or DEFAULT_MODEL
+    models = [m for m in ([model] + DEFAULT_MODELS) if m]
+
     try:
         from google import genai as genai_client
-        client = genai_client.Client(api_key=key)
-        response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-        )
-        return response.text
-    except Exception as e:
+
+        for model_name in models:
+            try:
+                client = genai_client.Client(
+                    api_key=key,
+                    http_options={"timeout": GOOGLE_AI_TIMEOUT_MS},
+                )
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                if response and response.text:
+                    return response.text
+            except Exception:
+                continue
+    except Exception:
         return ""
+    return ""
 
 
 def consultar_json(prompt: str, model: str = None) -> dict:

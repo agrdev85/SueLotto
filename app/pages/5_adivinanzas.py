@@ -7,8 +7,8 @@ load_dotenv()
 
 st.set_page_config(page_title="Adivinanzas - SueñaLotto", page_icon="🧠", layout="wide")
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.shared import render_global_header, api_get, api_post, init_session_state
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+from app.shared import render_global_header, api_get, api_post, init_session_state, go_to_planes
 
 init_session_state()
 
@@ -19,19 +19,33 @@ if not st.session_state.get("user"):
 render_global_header()
 
 tier_info = api_get("/api/auth/tier")
-if not tier_info or tier_info.get("tier") not in ("pro", "lifetime"):
+if not tier_info or tier_info.get("tier") not in ("pro", "lifetime", "admin"):
     st.markdown("""
-    <div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:linear-gradient(135deg, #1e3a5f, #2d1b4e);border-radius:1rem;border:1px solid #4a3f6b;">
-        <div style="font-size:3rem;margin-bottom:1rem;">🔒</div>
-        <h2 style="color:#fbbf24;">Contenido Exclusivo Pro</h2>
-        <p style="color:#94a3b8;margin:1rem 0;">Las Adivinanzas con IA son una funcionalidad exclusiva para usuarios <strong style="color:#fbbf24;">Pro</strong> y <strong style="color:#8b5cf6;">De por Vida</strong>.</p>
-        <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:0.75rem;padding:0.75rem;margin:1rem 0;">
+    <style>
+        .pro-card { max-width:500px; margin:3rem auto; text-align:center; padding:3rem 2rem;
+                    background:linear-gradient(135deg, #1e3a5f, #2d1b4e); border-radius:1rem; border:1px solid #4a3f6b; }
+        .pro-card h2 { color:#fbbf24; margin:0.75rem 0; }
+        .pro-card p { color:#94a3b8; }
+        .pro-card .pro-plan-box { background:rgba(251,191,36,0.1); border:1px solid rgba(251,191,36,0.3);
+                                 border-radius:0.75rem; padding:0.75rem; margin:1rem 0; }
+        .pro-card .pro-plan-box p { margin:0; }
+        .pro-card .stButton > button { width:100%; background:linear-gradient(135deg,#fbbf24,#f59e0b); color:#0f172a;
+                                       font-weight:800; border:none; border-radius:0.6rem; padding:0.6rem 1rem;
+                                       font-size:1rem; cursor:pointer; }
+        .pro-card .stButton > button:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(251,191,36,0.4); }
+    </style>
+    <div class="pro-card">
+        <div style="font-size:3rem;margin-bottom:0.5rem;">🔒</div>
+        <h2>Contenido Exclusivo Pro</h2>
+        <p>Las Adivinanzas con IA son una funcionalidad exclusiva para usuarios <strong style="color:#fbbf24;">Pro</strong> y <strong style="color:#8b5cf6;">De por Vida</strong>.</p>
+        <div class="pro-plan-box">
             <p style="color:#fbbf24;font-size:1.1rem;font-weight:700;">🚀 Plan Pro — $1/mes</p>
             <p style="color:#94a3b8;font-size:0.85rem;">✓ Sin límites diarios · ✓ IA + Adivinanzas · ✓ Matriz Charada · ✓ Soporte prioritario</p>
         </div>
-        <p style="color:#64748b;font-size:0.85rem;">Actualiza tu plan desde la página principal para desbloquear todas las funciones.</p>
     </div>
     """, unsafe_allow_html=True)
+    if st.button("🚀 Actualizar mi plan e ir a pagar", key="upgrade_cta_adiv", use_container_width=True):
+        go_to_planes()
     st.stop()
 
 st.markdown("""

@@ -11,5 +11,9 @@ build/
 *.db-wal
 *.db-shm
 data/*.log
+data/*.pdf
+data/*.json.sync
 data/auto_update_status.json
+data/promo_status.json
+data/backups/
 .history/

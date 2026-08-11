@@ -21,10 +21,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Start backend with nohup to survive shell
+# Start backend with nohup to survive shell.
+# Logs a consola y a data/backend.log (para ver el arranque del scheduler).
+mkdir -p "$DIR/data"
+echo "=== backend boot $(date '+%Y-%m-%d %H:%M:%S') ===" >> "$DIR/data/backend.log"
 nohup "$VENV_PYTHON" -m uvicorn backend.main:app \
     --host 0.0.0.0 --port "$BACKEND_PORT" \
-    --log-level info > "$DIR/data/backend.log" 2>&1 &
+    --log-level info > >(tee -a "$DIR/data/backend.log") 2>&1 &
 BACKEND_PID=$!
 echo "Backend started (PID: $BACKEND_PID)"
 

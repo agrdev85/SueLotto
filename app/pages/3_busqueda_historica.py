@@ -8,7 +8,7 @@ load_dotenv()
 
 st.set_page_config(page_title="Búsqueda Histórica - SueñaLotto", page_icon="🔎", layout="wide")
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from app.shared import render_global_header, api_get, api_post, init_session_state
 
 init_session_state()
@@ -20,7 +20,7 @@ if not st.session_state.get("user"):
 render_global_header()
 
 tier_info = api_get("/api/auth/tier")
-if not tier_info or tier_info.get("tier") not in ("free", "trial", "pro", "lifetime"):
+if not tier_info or tier_info.get("tier") not in ("free", "trial", "pro", "lifetime", "admin"):
     st.stop()
 
 tier_name = tier_info.get("tier", "free")

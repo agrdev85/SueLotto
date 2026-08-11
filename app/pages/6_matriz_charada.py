@@ -8,8 +8,8 @@ API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Matriz & Charada", page_icon="🔢", layout="wide")
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.shared import render_global_header, api_get, api_post, init_session_state
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+from app.shared import render_global_header, api_get, api_post, init_session_state, go_to_planes
 
 init_session_state()
 
@@ -20,19 +20,33 @@ if not st.session_state.get("user"):
 render_global_header()
 
 tier_info = api_get("/api/auth/tier")
-if not tier_info or tier_info.get("tier") not in ("pro", "lifetime"):
+if not tier_info or tier_info.get("tier") not in ("pro", "lifetime", "admin"):
     st.markdown("""
-    <div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:linear-gradient(135deg, #1e293b, #1e3a5f);border-radius:1rem;border:1px solid #334155;">
-        <div style="font-size:3rem;margin-bottom:1rem;">🔒</div>
-        <h2 style="color:#fbbf24;">Contenido Exclusivo Pro</h2>
-        <p style="color:#94a3b8;margin:1rem 0;">La Matriz Charada es una funcionalidad exclusiva para usuarios <strong style="color:#fbbf24;">Pro</strong> y <strong style="color:#8b5cf6;">De por Vida</strong>.</p>
-        <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:0.75rem;padding:0.75rem;margin:1rem 0;">
+    <style>
+        .pro-card { max-width:500px; margin:3rem auto; text-align:center; padding:3rem 2rem;
+                    background:linear-gradient(135deg, #1e293b, #1e3a5f); border-radius:1rem; border:1px solid #334155; }
+        .pro-card h2 { color:#fbbf24; margin:0.75rem 0; }
+        .pro-card p { color:#94a3b8; }
+        .pro-card .pro-plan-box { background:rgba(251,191,36,0.1); border:1px solid rgba(251,191,36,0.3);
+                                 border-radius:0.75rem; padding:0.75rem; margin:1rem 0; }
+        .pro-card .pro-plan-box p { margin:0; }
+        .pro-card .stButton > button { width:100%; background:linear-gradient(135deg,#fbbf24,#f59e0b); color:#0f172a;
+                                       font-weight:800; border:none; border-radius:0.6rem; padding:0.6rem 1rem;
+                                       font-size:1rem; cursor:pointer; }
+        .pro-card .stButton > button:hover { transform:translateY(-1px); box-shadow:0 4px 16px rgba(251,191,36,0.4); }
+    </style>
+    <div class="pro-card">
+        <div style="font-size:3rem;margin-bottom:0.5rem;">🔒</div>
+        <h2>Contenido Exclusivo Pro</h2>
+        <p>La Matriz Charada es una funcionalidad exclusiva para usuarios <strong style="color:#fbbf24;">Pro</strong> y <strong style="color:#8b5cf6;">De por Vida</strong>.</p>
+        <div class="pro-plan-box">
             <p style="color:#fbbf24;font-size:1.1rem;font-weight:700;">🚀 Plan Pro — $1/mes</p>
             <p style="color:#94a3b8;font-size:0.85rem;">✓ Sin límites diarios · ✓ IA + Adivinanzas · ✓ Matriz Charada · ✓ Soporte prioritario</p>
         </div>
-        <p style="color:#64748b;font-size:0.85rem;">Actualiza tu plan desde la página principal para desbloquear todas las funciones.</p>
     </div>
     """, unsafe_allow_html=True)
+    if st.button("🚀 Actualizar mi plan e ir a pagar", key="upgrade_cta_matriz", use_container_width=True):
+        go_to_planes()
     st.stop()
 
 st.markdown("""
@@ -86,7 +100,7 @@ MATRIZ_VIEJA = [
 tipo_matriz = st.selectbox("Tipo de Matriz", ["nueva", "vieja"],
                            format_func=lambda x: "Nueva (10x10)" if x == "nueva" else "Vieja (11x11)")
 
-tabs = st.tabs(["📊 Matriz Visual", "🔍 Alrededor", "📈 Comparar & Reducir", "📖 Charada Enriquecida"])
+tabs = st.tabs(["📊 Matriz Visual", "🔍 Alrededor", "📈 Comparar & Reducir", "📊 Análisis Completo", "📖 Charada Enriquecida"])
 
 # ─── Tab 0: Matriz Visual ────────────────────────────────────────
 with tabs[0]:
@@ -381,8 +395,8 @@ with tabs[2]:
                     f'<h3 style="color:#fbbf24;">🏆 Top {len(scored)} — Score Estadístico Final</h3>'
                     f'<p style="color:#94a3b8;font-size:0.85rem;">'
 f'Clasificación de TODOS los números alrededor por score compuesto '
-f'(freq 15% + recencia 30% + freq7d 15% + dígitos 15% + tendencia 25%). '
-f'Bonus +0.35 si 🔴caliente, +0.34 si 🔵posible, +0.45 si 🟡ambos.</p>'
+f'(frecuencia 25% + atraso 35% + ML 40%). '
+f'Categoría asignada: 🔴caliente, 🔵posible, 🟡ambos, 🟢discriminante.</p>'
                     f'<div style="display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">'
                     f'<span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#ef4444;border-radius:0.2rem;"></span> Caliente</span>'
                     f'<span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#3b82f6;border-radius:0.2rem;"></span> Posible</span>'
@@ -407,9 +421,9 @@ f'Bonus +0.35 si 🔴caliente, +0.34 si 🔵posible, +0.45 si 🟡ambos.</p>'
                         f'<span style="color:#94a3b8;font-size:0.7rem;min-width:1.8rem;text-align:right;" title="Frecuencia 90d">{s["frecuencia"]}×</span>'
                         f'<span style="color:#fbbf24;font-size:0.7rem;min-width:1.8rem;text-align:right;" title="Frecuencia últimos 7 días">{"🔥" + str(freq_7d) + "×" if freq_7d else ""}</span>'
                         f'<span style="color:#94a3b8;font-size:0.7rem;min-width:1.5rem;text-align:right;" title="Días sin salir">{s["dias_sin_salir"]}d</span>'
-                        f'<span style="color:#22c55e;font-size:0.7rem;min-width:2rem;text-align:right;" title="Probabilidad ML">{s["probabilidad_ml"]:.1%}</span>'
-                    f'<span style="color:#a78bfa;font-size:0.65rem;min-width:1.8rem;text-align:right;" title="Tendencia (últimos 15d vs 15d ant)">{("📈" + str(round(s["tendencia"] * 100)) + "%") if s["tendencia"] > 0 else ("📉" + str(round(abs(s["tendencia"]) * 100)) + "%")}</span>'
-                    f'<span style="color:#f59e0b;font-size:0.65rem;min-width:1.5rem;text-align:right;" title="Score dígitos (0-9) del par">{str(round(s["digito_score"] * 100)) + "%"}</span>'
+                        f'<span style="color:#22c55e;font-size:0.7rem;min-width:2rem;text-align:right;" title="Probabilidad ML">{s.get("probabilidad_ml", 0):.1%}</span>'
+                    f'<span style="color:#a78bfa;font-size:0.65rem;min-width:1.8rem;text-align:right;" title="Tendencia (últimos 15d vs 15d ant)">{("📈" + str(round(s["tendencia"] * 100)) + "%") if s.get("tendencia", 0) > 0 else ("📉" + str(round(abs(s["tendencia"]) * 100)) + "%") if s.get("tendencia", 0) < 0 else ""}</span>'
+                    f'<span style="color:#f59e0b;font-size:0.65rem;min-width:1.5rem;text-align:right;" title="Score dígitos (0-9) del par">{str(round(s.get("digito_score", 0) * 100)) + "%" if s.get("digito_score", 0) else ""}</span>'
                         f'</div>', unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
             else:
@@ -467,8 +481,183 @@ f'Bonus +0.35 si 🔴caliente, +0.34 si 🔵posible, +0.45 si 🟡ambos.</p>'
                 st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ─── Tab 3: Charada Enriquecida ──────────────────────────────────
+# ─── Tab 3: Análisis Completo ────────────────────────────────────
 with tabs[3]:
+    st.markdown(f'<div class="card"><h3>📊 Análisis Estadístico Completo</h3>'
+                f'<p style="color:#94a3b8;font-size:0.85rem;">'
+                f'Todos los números «alrededor» clasificados por score — incluye calientes, posibles y discriminantes.</p>',
+                unsafe_allow_html=True)
+
+    with st.expander("⚙️ Opciones de análisis", expanded=True):
+        col_game, col_sorteo, col_lim = st.columns([1, 1, 1])
+        with col_game:
+            juego_completo = st.selectbox("Juego", ["Pick 3", "Pick 4"], key="juego_completo")
+        with col_sorteo:
+            sorteo_completo = st.selectbox("Sorteo", ["E", "M"], key="sorteo_completo")
+        with col_lim:
+            top_n = st.slider("Top N del score completo", min_value=3, max_value=70, value=15, step=1, key="top_n_completo")
+
+    if st.button("📊 Analizar Todo", type="primary", width='stretch'):
+        secuencia_comp = [n for n in [num1, num2, num3] if n >= 1]
+
+        calientes_resp = api_get("/api/estadisticas/calientes", {"juego": juego_completo, "sorteo": sorteo_completo, "limite": 20, "dias": 30})
+        posibles_resp = api_get("/api/estadisticas/posibles-salir", {"juego": juego_completo, "sorteo": sorteo_completo})
+        calientes = calientes_resp.get("numeros", []) if calientes_resp else []
+        posibles = posibles_resp.get("numeros", []) if posibles_resp else []
+
+        resp = api_post("/api/matriz/comparar", {
+            "secuencia": secuencia_comp,
+            "tipo_matriz": tipo_matriz,
+            "calientes": calientes,
+            "posibles": posibles,
+            "juego": juego_completo,
+            "sorteo": sorteo_completo,
+            "limite": top_n,
+            "modo": "completo",
+        })
+        if resp:
+            scored = resp.get("scored_completo", [])
+
+            _cat_colors = {
+                "ambos": "#fbbf24",
+                "caliente": "#ef4444",
+                "posible": "#3b82f6",
+                "discriminante": "#22c55e",
+            }
+            _cat_labels = {
+                "ambos": "🔥 Cal+Pos",
+                "caliente": "🔴 Caliente",
+                "posible": "🔵 Posible",
+                "discriminante": "🟢 Discriminante",
+            }
+
+            m1, m2, m3, m4, m5 = st.columns(5)
+            with m1:
+                st.metric("Alrededor", resp["total_alrededor"])
+            with m2:
+                st.metric("🔴 Calientes", resp["total_interseccion_calientes"])
+            with m3:
+                st.metric("🔵 Posibles", resp["total_interseccion_posibles"])
+            with m4:
+                st.metric("🟡 Ambos", resp["total_interseccion_ambos"])
+            with m5:
+                st.metric("🏆 Score Completo", len(scored))
+
+            if scored:
+                st.markdown(
+                    f'<div class="card" style="margin-top:1rem;">'
+                    f'<h3 style="color:#fbbf24;">🏆 Top {len(scored)} — Score Completo</h3>'
+                    f'<p style="color:#94a3b8;font-size:0.85rem;">'
+                    f'Clasificación de TODOS los números alrededor por score compuesto '
+                    f'(frecuencia 25% + atraso 35% + ML 40%). '
+                    f'Categoría asignada: 🔴caliente, 🔵posible, 🟡ambos, 🟢discriminante.</p>'
+                    f'<div style="display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">'
+                    f'<span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#ef4444;border-radius:0.2rem;"></span> Caliente</span>'
+                    f'<span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#3b82f6;border-radius:0.2rem;"></span> Posible</span>'
+                    f'<span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#fbbf24;border-radius:0.2rem;"></span> Caliente+Posible</span>'
+                    f'<span><span style="display:inline-block;width:0.8rem;height:0.8rem;background:#22c55e;border-radius:0.2rem;"></span> Discriminante</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                for i, s in enumerate(scored):
+                    cat = s.get("categoria", "discriminante")
+                    cat_color = _cat_colors.get(cat, "#22c55e")
+                    cat_label = _cat_labels.get(cat, "🟢 Disc.")
+                    bar_w = max(int(s["score"] * 100), 3)
+                    freq_7d = s.get("frecuencia_7d", 0)
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;border-bottom:1px solid #1e293b;">'
+                        f'<span style="color:#64748b;min-width:1.5rem;font-size:0.8rem;">#{i+1}</span>'
+                        f'<span style="background:{cat_color};color:#0f172a;font-weight:bold;border-radius:0.3rem;padding:0.1rem 0.5rem;min-width:2.5rem;text-align:center;">{s["numero"]:02d}</span>'
+                        f'<span style="color:{cat_color};font-size:0.65rem;min-width:4.5rem;font-weight:600;">{cat_label}</span>'
+                        f'<div style="flex:1;background:#1e293b;height:0.6rem;border-radius:0.3rem;">'
+                        f'<div style="background:linear-gradient(90deg,{cat_color},#fbbf24);width:{bar_w}%;height:100%;border-radius:0.3rem;"></div></div>'
+                        f'<span style="color:#94a3b8;font-size:0.7rem;min-width:1.8rem;text-align:right;" title="Frecuencia 90d">{s["frecuencia"]}×</span>'
+                        f'<span style="color:#fbbf24;font-size:0.7rem;min-width:1.8rem;text-align:right;" title="Frecuencia últimos 7 días">{"🔥" + str(freq_7d) + "×" if freq_7d else ""}</span>'
+                        f'<span style="color:#94a3b8;font-size:0.7rem;min-width:1.5rem;text-align:right;" title="Días sin salir">{s["dias_sin_salir"]}d</span>'
+                        f'<span style="color:#22c55e;font-size:0.7rem;min-width:2rem;text-align:right;" title="Probabilidad ML">{s.get("probabilidad_ml", 0):.1%}</span>'
+                    f'<span style="color:#a78bfa;font-size:0.65rem;min-width:1.8rem;text-align:right;" title="Tendencia (últimos 15d vs 15d ant)">{("📈" + str(round(s["tendencia"] * 100)) + "%") if s.get("tendencia", 0) > 0 else ("📉" + str(round(abs(s["tendencia"]) * 100)) + "%") if s.get("tendencia", 0) < 0 else ""}</span>'
+                    f'<span style="color:#f59e0b;font-size:0.65rem;min-width:1.5rem;text-align:right;" title="Score dígitos (0-9) del par">{str(round(s.get("digito_score", 0) * 100)) + "%" if s.get("digito_score", 0) else ""}</span>'
+                        f'</div>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    f'<div class="card" style="margin-top:1rem;">'
+                    f'<h4 style="color:#94a3b8;">⏳ No hay suficientes datos para calcular el score completo</h4>'
+                    f'<p style="color:#64748b;font-size:0.85rem;">Asegúrate de tener resultados históricos importados.</p>'
+                    f'</div>', unsafe_allow_html=True
+                )
+
+            with st.expander("📊 Distribución por categoría", expanded=False):
+                st.markdown(
+                    f'<div class="card">'
+                    f'<h4>🔴 Calientes en Alrededor ({resp["total_interseccion_calientes"]})</h4>',
+                    unsafe_allow_html=True,
+                )
+                if resp["interseccion_calientes"]:
+                    numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["interseccion_calientes"])
+                    st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                st.markdown(
+                    f'<div class="card">'
+                    f'<h4>🔵 Posibles en Alrededor ({resp["total_interseccion_posibles"]})</h4>',
+                    unsafe_allow_html=True,
+                )
+                if resp["interseccion_posibles"]:
+                    numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["interseccion_posibles"])
+                    st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                st.markdown(
+                    f'<div class="card">'
+                    f'<h4>🟡 Caliente + Posible ({resp["total_interseccion_ambos"]})</h4>',
+                    unsafe_allow_html=True,
+                )
+                if resp["interseccion_ambos"]:
+                    numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["interseccion_ambos"])
+                    st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
+                else:
+                    st.info("No hay números que sean calientes y posibles a la vez.")
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                st.markdown(
+                    f'<div class="card">'
+                    f'<h4>🟢 Discriminante ({resp["total_discriminante"]}) · '
+                    f'<span style="color:#94a3b8;font-size:0.85rem;">Alrededor − Calientes − Posibles</span></h4>',
+                    unsafe_allow_html=True,
+                )
+                if resp["discriminante"]:
+                    numeros_html = "".join(f'<span class="result-number">{x}</span>' for x in resp["discriminante"])
+                    st.markdown(f'<div>{numeros_html}</div>', unsafe_allow_html=True)
+                else:
+                    st.info("No hay números discriminantes.")
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            if scored:
+                st.markdown(
+                    f'<div class="card" style="margin-top:0.5rem;">'
+                    f'<h4 style="color:#f1f5f9;">📈 Resumen por categoría en el Top {len(scored)}</h4>',
+                    unsafe_allow_html=True,
+                )
+                for cat_name, cat_color in [("caliente", "#ef4444"), ("posible", "#3b82f6"), ("ambos", "#fbbf24"), ("discriminante", "#22c55e")]:
+                    count = sum(1 for s in scored if s.get("categoria") == cat_name)
+                    if count:
+                        pct = count / len(scored) * 100
+                        st.markdown(
+                            f'<div style="display:flex;align-items:center;gap:0.5rem;margin:0.25rem 0;">'
+                            f'<span style="width:0.8rem;height:0.8rem;background:{cat_color};border-radius:0.2rem;display:inline-block;"></span>'
+                            f'<span style="color:#e2e8f0;min-width:6rem;">{_cat_labels.get(cat_name, cat_name.title())}</span>'
+                            f'<div style="flex:1;background:#1e293b;height:0.5rem;border-radius:0.3rem;">'
+                            f'<div style="background:{cat_color};width:{pct}%;height:100%;border-radius:0.3rem;"></div></div>'
+                            f'<span style="color:#94a3b8;min-width:3rem;text-align:right;">{count} ({pct:.0f}%)</span>'
+                            f'</div>', unsafe_allow_html=True,
+                        )
+                st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ─── Tab 4: Charada Enriquecida ──────────────────────────────────
+with tabs[4]:
     st.markdown(f'<div class="card"><h3>📖 Charada Enriquecida</h3>', unsafe_allow_html=True)
 
     query = st.text_input("🔍 Buscar por número (1-100) o palabra clave", placeholder="Ej: 15, perro, serpiente, río...", key="charada_unico")

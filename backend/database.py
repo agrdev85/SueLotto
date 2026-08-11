@@ -9,24 +9,38 @@ load_dotenv()
 logger = logging.getLogger("suenalotto.database")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./suelotto.db")
+IS_SQLITE = "sqlite" in DATABASE_URL
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
+if IS_SQLITE:
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+    )
+else:
+    _needs_ssl = "localhost" not in DATABASE_URL and "127.0.0.1" not in DATABASE_URL
+    engine = create_engine(
+        DATABASE_URL,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        connect_args={"sslmode": "require"} if _needs_ssl else {},
+    )
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
 def _add_missing_columns():
-    """Add columns that exist in models but not in the database."""
     from backend.models import User
 
     inspector = inspect(engine)
     existing_columns = {c["name"] for c in inspector.get_columns("users")}
 
     model_columns = {
-        "email_verified": "BOOLEAN DEFAULT 0",
+        "email_verified": "BOOLEAN DEFAULT FALSE" if not IS_SQLITE else "BOOLEAN DEFAULT 0",
         "email_verification_token": "VARCHAR(200)",
         "password_reset_token": "VARCHAR(200)",
-        "password_reset_expires": "DATETIME",
+        "password_reset_expires": "TIMESTAMP" if not IS_SQLITE else "DATETIME",
     }
 
     with engine.connect() as conn:
@@ -51,3 +65,10 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_engine_info() -> dict:
+    return {
+        "driver": "sqlite" if IS_SQLITE else "postgresql",
+        "url": DATABASE_URL if IS_SQLITE else DATABASE_URL.split("@")[-1].split("?")[0],
+    }

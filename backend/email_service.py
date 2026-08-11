@@ -102,3 +102,22 @@ def send_payment_receipt(to: str, username: str, plan: str, amount: str, tx_id: 
     <p style="color:#64748b;font-size:0.85rem;">Ya puedes disfrutar de todas las funcionalidades de tu plan.</p>
     </div></body></html>"""
     return _send_email(to, f"Recibo de pago {plan} - SueñaLotto", html)
+
+
+def send_contact_message(name: str, contact: str, subject: str, message: str, username: str = "") -> bool:
+    """Envía un mensaje de soporte al buzón del administrador (SMTP_USER)."""
+    html = f"""
+    <html><body style="font-family:sans-serif;background:#0a0e1a;padding:2rem;">
+    <div style="max-width:480px;margin:auto;background:#1e293b;border-radius:1rem;padding:2rem;border:1px solid #334155;">
+    <h1 style="color:#fbbf24;text-align:center;">🛟 Mensaje de Soporte</h1>
+    <div style="background:#334155;border-radius:0.5rem;padding:1rem;margin:1rem 0;">
+    <p style="color:#f1f5f9;"><strong>Nombre:</strong> {name}</p>
+    <p style="color:#f1f5f9;"><strong>Contacto:</strong> {contact}</p>
+    <p style="color:#f1f5f9;"><strong>Usuario:</strong> {username or "Anónimo"}</p>
+    <p style="color:#f1f5f9;"><strong>Asunto:</strong> {subject}</p>
+    </div>
+    <div style="background:#0f172a;border:1px solid #334155;border-radius:0.5rem;padding:1rem;">
+    <p style="color:#e2e8f0;white-space:pre-wrap;">{message}</p>
+    </div>
+    </div></body></html>"""
+    return _send_email(SMTP_USER, f"[Soporte] {subject} - {name}", html)

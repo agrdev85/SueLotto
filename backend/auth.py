@@ -1,4 +1,5 @@
 import os
+import logging
 import bcrypt
 from datetime import datetime, timedelta
 from typing import Optional
@@ -10,13 +11,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SECRET_KEY = os.getenv("JWT_SECRET", "")
-if not SECRET_KEY or SECRET_KEY == "super-secret-key-change-in-production":
+if not SECRET_KEY:
     import secrets
     SECRET_KEY = secrets.token_hex(32)
-    os.environ["JWT_SECRET"] = SECRET_KEY
+    logger = logging.getLogger("suenalotto.auth")
+    logger.warning("JWT_SECRET not set in .env — using ephemeral key. Tokens will be invalid after restart!")
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_REFRESH_EXPIRE_MINUTES", "1440"))  # 24h
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 

@@ -1,6 +1,9 @@
 import os
+import sys
+import time
 import secrets
 import logging
+import threading
 from fastapi import FastAPI, Depends, Query, HTTPException, Body, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -17,7 +20,7 @@ load_dotenv()
 from backend.logging_config import logger
 from backend.database import init_db, get_db, SessionLocal
 from backend.schemas import MatrizRequest, SecuenciaRequest, CompararRequest
-from backend.auth import hash_password, verify_password, create_access_token, decode_token
+from backend.auth import hash_password, verify_password, create_access_token, decode_token, ACCESS_TOKEN_EXPIRE_MINUTES
 from backend.models import User, Bet, UserUsage
 from backend.crud import (
     get_ultimos_resultados, get_resultados_historicos, get_frecuencias,
@@ -28,14 +31,21 @@ from backend.lottery_analyzer import generar_predicciones, calcular_numeros_cali
 from backend.charada_engine import buscar_en_sueno
 from backend.adivinanza_ai import analizar_adivinanza
 from backend.matrix_engine import obtener_numeros_alrededor, procesar_secuencia, comparar_y_reducir
-from backend.auto_updater import start as start_auto_updater
+from backend.auto_updater import start as start_auto_updater, catch_up_if_stale
+from backend.keepalive import start as start_keepalive
 from backend.fl_scraper import scrape_other_games
 from backend.rate_limit import RateLimitMiddleware
 from backend.email_service import (
     send_verification_email, send_password_reset,
-    send_welcome_email, send_payment_receipt, is_configured as email_configured,
+    send_welcome_email, send_payment_receipt, send_contact_message,
+    is_configured as email_configured,
 )
 from backend.qvapay import create_payment_url, process_webhook, verify_webhook, is_configured as qvapay_configured, PLANS, get_promo_info, increment_promo_purchases
+from backend.db_manager import (
+    export_db, import_db, run_backup, list_backups, restore_backup,
+    delete_backup, get_backup_status, start_backup_scheduler,
+    get_tables_meta, get_records, create_record, update_record, delete_record,
+)
 
 app = FastAPI(title="SueñaLotto API", version="2.0.0")
 
@@ -87,6 +97,17 @@ def _import_historical_resultados():
     logger.info("Historical results import completed")
 
 
+def _startup_catch_up():
+    """Poco después de arrancar, si los históricos están atrasados (p. ej. la
+    app durmió y se perdió alguna actualización programada), ejecuta la
+    actualización pendiente."""
+    time.sleep(20)
+    try:
+        catch_up_if_stale()
+    except Exception as e:
+        logger.error("Catch-up de históricos falló: %s", e)
+
+
 @app.on_event("startup")
 def on_startup():
     try:
@@ -109,6 +130,10 @@ def on_startup():
         finally:
             db.close()
         start_auto_updater()
+        start_keepalive()
+        t = threading.Thread(target=_startup_catch_up, daemon=True)
+        t.start()
+        start_backup_scheduler()
         logger.info("SueñaLotto API started")
         if not email_configured():
             logger.warning("SMTP not configured — emails disabled")
@@ -185,6 +210,126 @@ def api_admin_set_tier(
     return {"status": "ok", "username": username, "tier": new_tier}
 
 
+# ─── Admin: Gestor de Base de Datos ─────────────────────────────────
+
+@app.get("/api/admin/db/tables")
+def api_db_tables(admin: User = Depends(_require_admin)):
+    return get_tables_meta()
+
+
+@app.get("/api/admin/db/{table}/records")
+def api_db_records(
+    table: str,
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=500),
+    admin: User = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        return get_records(db, table, page, size)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/admin/db/{table}/records")
+def api_db_create_record(
+    table: str,
+    data: dict = Body(...),
+    admin: User = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        return create_record(db, table, data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.put("/api/admin/db/{table}/records/{record_id}")
+def api_db_update_record(
+    table: str,
+    record_id: int,
+    data: dict = Body(...),
+    admin: User = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        return update_record(db, table, record_id, data)
+    except ValueError as e:
+        raise HTTPException(404 if "no encontrado" in str(e) else 400, str(e))
+
+
+@app.delete("/api/admin/db/{table}/records/{record_id}")
+def api_db_delete_record(
+    table: str,
+    record_id: int,
+    admin: User = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        return delete_record(db, table, record_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.get("/api/admin/db/export")
+def api_db_export(admin: User = Depends(_require_admin), db: Session = Depends(get_db)):
+    return export_db(db)
+
+
+@app.post("/api/admin/db/import")
+def api_db_import(
+    data: dict = Body(...),
+    admin: User = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    mode = data.get("mode", "replace")
+    payload = data.get("data") or data
+    try:
+        return import_db(payload, mode=mode, db=db)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error("Import de BD falló: %s", e)
+        raise HTTPException(400, f"Error al importar: {e}")
+
+
+@app.get("/api/admin/db/backups")
+def api_db_list_backups(admin: User = Depends(_require_admin)):
+    return list_backups()
+
+
+@app.post("/api/admin/db/backups/run")
+def api_db_backup_now(admin: User = Depends(_require_admin)):
+    return run_backup(manual=True)
+
+
+@app.get("/api/admin/db/backup-status")
+def api_db_backup_status(admin: User = Depends(_require_admin)):
+    return get_backup_status()
+
+
+@app.post("/api/admin/db/backups/{filename}/restore")
+def api_db_restore_backup(
+    filename: str,
+    admin: User = Depends(_require_admin),
+):
+    try:
+        return restore_backup(filename)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.delete("/api/admin/db/backups/{filename}")
+def api_db_delete_backup(
+    filename: str,
+    admin: User = Depends(_require_admin),
+):
+    try:
+        return delete_backup(filename)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 # ─── Results ────────────────────────────────────────────────────────
 
 @app.get("/api/resultados/ultimos")
@@ -228,8 +373,20 @@ def api_ultima_fecha(db: Session = Depends(get_db)):
 @app.get("/api/resultados/otros-juegos")
 def api_otros_juegos(db: Session = Depends(get_db)):
     from backend.crud import get_other_games
-    games = get_other_games(db, limit=10)
+    from backend.fl_api import GAME_ORDER
+
+    games = get_other_games(db, limit=100)
     if games:
+        latest_by_game = {}
+        for g in games:
+            cur = latest_by_game.get(g.game_name)
+            if cur is None or (g.fecha and cur.fecha and g.fecha > cur.fecha):
+                latest_by_game[g.game_name] = g
+        order = {name: i for i, name in enumerate(GAME_ORDER)}
+        ordered = sorted(
+            latest_by_game.values(),
+            key=lambda g: order.get(g.game_name, 99),
+        )
         return [
             {
                 "name": g.game_name,
@@ -237,7 +394,7 @@ def api_otros_juegos(db: Session = Depends(get_db)):
                 "numbers": g.numbers.split(",") if g.numbers else [],
                 "extra": g.extra.split(",") if g.extra else [],
             }
-            for g in games
+            for g in ordered
         ]
     return scrape_other_games()
 
@@ -413,6 +570,7 @@ def api_matriz_comparar(req: CompararRequest, db: Session = Depends(get_db)):
         resultado = comparar_y_reducir(
             req.secuencia, req.tipo_matriz, req.calientes, req.posibles,
             db=db, juego=req.juego, sorteo=req.sorteo, limite=req.limite,
+            modo=req.modo,
         )
         return resultado
     except ValueError as e:
@@ -528,6 +686,40 @@ def api_login(data: dict = Body(...), db: Session = Depends(get_db)):
     }
 
 
+@app.post("/api/auth/refresh")
+def api_refresh_token(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    if not authorization:
+        raise HTTPException(401, "Token requerido")
+    try:
+        scheme, token = authorization.split()
+        if scheme.lower() != "bearer":
+            raise HTTPException(401, "Scheme inválido")
+    except ValueError:
+        raise HTTPException(401, "Formato de autorización inválido")
+
+    payload = decode_token(token)
+    if payload is None:
+        raise HTTPException(401, "Token inválido o expirado")
+
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(401, "Token inválido")
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(401, "Usuario no encontrado")
+
+    new_token = create_access_token({"sub": user.username})
+    return {
+        "access_token": new_token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    }
+
+
 @app.get("/api/auth/profile")
 def api_profile(current_user: User = Depends(_require_user)):
     return {
@@ -586,6 +778,38 @@ def api_check_tier(
         "historica_today": historica_today,
         "historica_limit": historica_limit,
     }
+
+
+# ─── Soporte / Contacto ────────────────────────────────────────────
+
+@app.post("/api/support/contact")
+def api_support_contact(
+    data: dict = Body(...),
+    current_user: Optional[User] = Depends(_get_user_from_token),
+):
+    name = str(data.get("name", "")).strip()[:100]
+    contact = str(data.get("contact", "")).strip()[:200]
+    subject = str(data.get("subject", "Consulta general")).strip()[:200]
+    message = str(data.get("message", "")).strip()[:4000]
+
+    if not message:
+        raise HTTPException(400, "El mensaje no puede estar vacío")
+    if not contact:
+        raise HTTPException(400, "Indica un medio de contacto (email, WhatsApp, Telegram, etc.)")
+    if not email_configured():
+        raise HTTPException(503, "El canal de soporte por email no está configurado aún. Intenta más tarde.")
+
+    ok = send_contact_message(
+        name or "Anónimo",
+        contact,
+        subject,
+        message,
+        username=current_user.username if current_user else "",
+    )
+    if not ok:
+        raise HTTPException(503, "No se pudo enviar el mensaje. Intenta de nuevo.")
+    logger.info("Support contact received from %s (%s): %s", name, contact, subject)
+    return {"status": "sent", "message": "Mensaje enviado. Te responderemos pronto."}
 
 
 # ─── Email Verification ────────────────────────────────────────────
@@ -820,8 +1044,8 @@ def api_create_bet(
     bet = Bet(
         user_id=current_user.id,
         fecha=datetime.strptime(data["fecha"], "%Y-%m-%d").date(),
-        turno=data.get("turno"),
-        juego=data.get("juego"),
+        turno=data.get("turno") or "Noche",
+        juego=data.get("juego") or "Pick3",
         numeros=data["numeros"],
         fijo=data.get("fijo"),
         corrido=data.get("corrido"),

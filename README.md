@@ -1,116 +1,99 @@
-# SueñaLotto - App Integral de Lotería con Charada Cubana
+# SueñaLotto — App Integral de Lotería con Charada Cubana
 
-Análisis inteligente de la Florida Lottery (Pick 3 & Pick 4) con búsqueda por sueños, adivinanzas con IA y predicciones estadísticas.
+Análisis de la Florida Lottery (Pick 3, Pick 4 y otros juegos) con búsqueda por sueños, adivinanzas con IA, predicciones estadísticas y matriz de números. Frontend, API y mantenimiento automático de datos en un solo proceso.
 
 ## Stack Tecnológico
 
-- **Backend API**: FastAPI (Python 3.9+)
+- **Backend**: FastAPI + SQLAlchemy ORM
 - **Frontend**: Streamlit
-- **Base de Datos**: SQLAlchemy ORM (SQLite dev / PostgreSQL prod)
-- **ML**: Scikit-learn (Random Forest)
-- **IA**: Google Gemini API (análisis de adivinanzas)
-- **Despliegue**: Render.com
+- **BD**: SQLite en local (dev) / PostgreSQL vía `DATABASE_URL` (producción)
+- **ML/IA**: Scikit-learn (Random Forest) + Google Gemini API (adivinanzas)
+- **Pagos**: Qvapay
+- **Despliegue**: Render.com (Web Service único: `web: bash start.sh`)
 
-## Estructura del Proyecto
+## Estructura
 
 ```
 SueñaLotto/
-├── app/                    # Frontend Streamlit
-│   ├── main.py            # Página principal (Dashboard)
-│   └── pages/
-│       ├── 1_estadisticas.py     # Estadísticas detalladas
-│       ├── 2_busqueda_historica.py  # Buscador histórico inteligente
-│       ├── 3_busqueda_suenos.py     # Búsqueda en Charada Cubana
-│       └── 4_adivinanzas.py        # Adivinanzas con IA
-├── backend/                # Backend FastAPI
-│   ├── main.py            # API endpoints
-│   ├── database.py        # Conexión a BD
-│   ├── models.py          # Modelos SQLAlchemy
-│   ├── schemas.py         # Schemas Pydantic
-│   ├── crud.py            # Operaciones de base de datos
-│   ├── lottery_analyzer.py # Análisis estadístico y ML
-│   ├── charada_engine.py  # Motor de búsqueda en Charada
-│   └── adivinanza_ai.py   # Integración con Gemini AI
-├── scripts/               # Scripts de utilidad
-│   ├── importar_historicos.py  # Importación inicial de datos
-│   ├── actualizar_resultados.py # Actualización diaria
-│   └── poblar_charada.py  # Poblar tabla Charada
-├── data/                  # Datos estáticos
-│   ├── charada.json       # 100 números de la Charada Cubana
-│   └── adivinanzas_ejemplo.txt  # Adivinanzas de ejemplo
+├── app/                      # Frontend Streamlit
+│   ├── main.py              # Página principal
+│   └── pages/               # 1..8: jugadas, estadísticas, búsquedas, adivinanzas,
+│                            #       matriz charada, gestor BD, soporte
+├── backend/                  # API FastAPI
+│   ├── main.py              # Endpoints + arranque de tareas programadas
+│   ├── auto_updater.py      # Actualización automática diaria (cada 3 h) + catch-up
+│   ├── keepalive.py         # Ping de mantenimiento interno
+│   ├── db_manager.py        # Backups/restauraciones automáticas de la BD
+│   ├── fl_api.py            # API oficial de la Florida Lottery
+│   ├── fl_scraper.py        # Scraper de otros juegos (Lucky Money, etc.)
+│   └── ...                  # auth, crud, models, schemas, analítica, email
+├── scripts/                  # Utilidades (ver sección Scripts)
+├── data/                     # Datos seed (charada.json, arrastrados) — el resto
+│                             # (logs, PDFs, backups) se regenera en runtime
 ├── requirements.txt
-├── Procfile
-├── .env
-└── README.md
+├── Procfile                  # web: bash start.sh
+└── start.sh                  # Arranca backend + frontend
 ```
 
 ## Instalación y Ejecución Local
 
-### 1. Clonar y configurar entorno virtual
-
 ```bash
+git clone <repo> && cd SueñaLotto
 python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate  # Windows
-pip install -r requirements.txt
+venv/bin/pip install -r requirements.txt
+cp .env.example .env            # llena las claves según tus servicios
+./start.sh                      # lanza backend (8000) + frontend (8501)
 ```
 
-### 2. Configurar variables de entorno
+`start.sh` arranca ambos procesos y registra los logs del backend en consola y en `data/backend.log`.
 
-```bash
-cp .env.example .env
-# Editar .env con tu API key de Gemini (opcional)
-```
+En el primer arranque la app inicializa la BD, importa la Charada desde `data/charada.json` y los resultados históricos desde la API/PDFs de floridalottery.com en segundo plano (no requiere intervención).
 
-### 3. Inicializar base de datos y poblar Charada
+## Tareas Automáticas (sin intervención)
 
-```bash
-python scripts/poblar_charada.py
-```
+Todas se inician al arrancar el backend:
 
-### 4. Importar datos históricos
+- **Auto-update diario**: cada 3 h (01:00, 04:00, 07:00, 10:00, 13:00, 16:00, 19:00, 22:00 hora del servidor) descarga los sorteos MIDDAY/EVENING de Pick 3 y Pick 4 (API oficial, con respaldo PDF) y actualiza otros juegos. Si la app estuvo dormida y los históricos están atrasados, un catch-up la recupera 20 s después de cada arranque.
+- **Backups automáticos** de la BD en `data/backups/` (retención de 30).
+- **Keepalive** interno (ping a `/health`).
 
-```bash
-python scripts/importar_historicos.py
-```
+Estado y logs: `data/auto_update_status.json`, `data/auto_update.log`, `data/backups/`.
 
-### 5. Iniciar la API
+## Scripts
 
-```bash
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
-```
+| Script | Uso |
+|--------|-----|
+| `scripts/actualizar_resultados.py` | Actualización manual de resultados (API + PDF) |
+| `scripts/hacer_admin.py` | Convierte un usuario en administrador |
+| `scripts/sync_to_supabase.py` | Migra la BD local SQLite a PostgreSQL remoto |
+| `scripts/importar_historicos.py` | Importa/extrae resultados desde los PDFs |
 
-### 6. Iniciar el frontend (en otra terminal)
-
-```bash
-streamlit run app/main.py
-```
-
-## API Endpoints
+## API Endpoints (resumen)
 
 | Endpoint | Método | Descripción |
 |----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/api/resultados/ultimos` | GET | Últimos resultados |
-| `/api/resultados/historicos` | GET | Búsqueda histórica con filtros |
-| `/api/estadisticas/frecuencias` | GET | Números más frecuentes |
-| `/api/estadisticas/atrasados` | GET | Números más atrasados |
+| `/health` | GET | Health check (puede usarse como ping externo) |
+| `/api/resultados/ultimos` | GET | Últimos resultados por juego |
+| `/api/resultados/historicos` | GET | Historial con filtros |
+| `/api/estadisticas/frecuencias`, `/api/estadisticas/atrasados` | GET | Frecuencias y atrasos |
 | `/api/predicciones` | GET | Predicciones ML |
-| `/api/charada/buscar` | POST | Buscar números por sueño |
-| `/api/adivinanza/hoy` | GET | Adivinanza del día |
-| `/api/adivinanza/analizar` | POST | Analizar adivinanza con IA |
+| `/api/charada/buscar` | POST | Números por sueño |
+| `/api/adivinanza/analizar` | POST | Análisis con IA |
+| `/api/admin/...` | * | Gestión admin (usuarios, BD, backups) |
 
-## Despliegue en Render
+## Despliegue en Render.com
 
-1. Conectar repositorio de GitHub
-2. Crear Web Service para la API: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
-3. Crear Web Service para Frontend: `streamlit run app/main.py --server.port $PORT --server.address 0.0.0.0`
-4. Configurar Cron Job: `python scripts/actualizar_resultados.py` (diario 3:00 AM)
-5. Variables de entorno: `DATABASE_URL`, `GEMINI_API_KEY`, `ENVIRONMENT`, `FASTAPI_URL`
+1. Sube el repositorio a GitHub y crea un **Web Service** desde Render apuntando al repo.
+2. Build: `pip install -r requirements.txt`. Start command: lo toma del `Procfile` (`web: bash start.sh`).
+3. Variables de entorno:
+   - `DATABASE_URL` — PostgreSQL (Render incluye uno gratuito). **Importante:** en el tier gratuito el disco es efímero; sin Postgres los datos se perderían en cada redeploy.
+   - `PUBLIC_URL` — URL pública de la app (`https://tu-app.onrender.com`), para el keepalive.
+   - Opcionales: `GEMINI_API_KEY`, `SMTP_*`, `QVAPAY_*`, `ADMIN_API_TOKEN`, `KEEPALIVE_INTERVAL`.
+4. **Anti-sleep**: el tier gratuito duerme la instancia sin tráfico externo. Configura un monitor gratuito (cron-job.org, UptimeRobot) que haga GET a `https://tu-app.onrender.com/health` cada 10–15 min. Al despertar, el catch-up automático actualiza los históricos.
+5. El backend escucha en `BACKEND_PORT` (8000) y el frontend en `PORT` (Render inyecta `$PORT`).
 
 ## Notas
 
-- Los datos históricos se obtienen de: https://files.floridalottery.com/exptkt/p3.htm y p4.htm
-- La Charada Cubana contiene 100 números con sus significados tradicionales
-- Las predicciones ML usan Random Forest con features de frecuencia y atraso
-- Sin API key de Gemini, el análisis de adivinanzas funciona con fallback local
+- Datos oficiales: https://www.floridalottery.com (API + PDFs `p3.pdf`/`p4.pdf`)
+- La Charada Cubana contiene 100 números con significados tradicionales (`data/charada.json`)
+- Sin API key de Gemini, el análisis de adivinanzas usa un fallback local
