@@ -424,3 +424,68 @@ def go_to_planes():
     planes/pago. Usa st.switch_page (mantiene la sesión iniciada)."""
     st.session_state["_go_to_planes"] = True
     st.switch_page("dashboard.py")
+
+
+def render_pro_card(
+    description_html: str,
+    plan_features_html: str,
+    cta_key: str,
+    bg: str = "linear-gradient(135deg, #1e3a5f, #2d1b4e)",
+    border_color: str = "#4a3f6b",
+):
+    """Tarjeta 'Contenido Exclusivo Pro' con el botón de upgrade DENTRO de la
+    tarjeta. Al pulsarlo redirige a la sección de planes de la página principal
+    manteniendo la sesión iniciada."""
+    st.markdown(f"""
+    <style>
+        .st-key-pro_card {{
+            background: {bg};
+            border: 1px solid {border_color};
+            border-radius: 1rem;
+            padding: 2.2rem 1.8rem 1.8rem;
+            max-width: 520px;
+            margin: 3rem auto;
+            text-align: center;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+        }}
+        .st-key-pro_card [data-testid="stElementContainer"] {{
+            padding-bottom: 0.35rem;
+        }}
+        .st-key-pro_card .stButton > button {{
+            width: 100% !important;
+            background: linear-gradient(135deg,#fbbf24,#f59e0b) !important;
+            color: #0f172a !important;
+            font-weight: 800 !important;
+            border: none !important;
+            border-radius: 0.6rem !important;
+            padding: 0.6rem 1rem !important;
+            font-size: 1rem !important;
+            cursor: pointer !important;
+        }}
+        .st-key-pro_card .stButton > button:hover {{
+            transform: translateY(-1px) !important;
+            box-shadow: 0 4px 16px rgba(251,191,36,0.4) !important;
+        }}
+    </style>
+    """, unsafe_allow_html=True)
+
+    with st.container(key="pro_card"):
+        st.markdown('<div style="font-size:3rem;line-height:1;">🔒</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<h2 style="color:#fbbf24;margin:0.5rem 0 0;">Contenido Exclusivo Pro</h2>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f'<p style="color:#94a3b8;margin:0.5rem 0;">{description_html}</p>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);'
+            'border-radius:0.75rem;padding:0.75rem;margin:0.6rem 0;">'
+            '<p style="color:#fbbf24;font-size:1.1rem;font-weight:700;margin:0;">🚀 Plan Pro — $1/mes</p>'
+            f'<p style="color:#94a3b8;font-size:0.85rem;margin:0.25rem 0 0;">{plan_features_html}</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("🚀 Actualizar mi plan e ir a pagar", key=cta_key, use_container_width=True):
+            go_to_planes()
