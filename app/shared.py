@@ -102,8 +102,10 @@ def api_get(path, params=None):
         return None
 
 
-def api_post(path, json_data=None):
+def api_post(path, json_data=None, token=None):
     headers = _make_headers()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     try:
         r = httpx.post(f"{API_URL}{path}", json=json_data or {}, headers=headers, timeout=20)
         r.raise_for_status()

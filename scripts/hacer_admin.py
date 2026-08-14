@@ -13,6 +13,8 @@ El ADMIN_API_TOKEN se toma del archivo .env (o de la variable de entorno).
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     import httpx
 except ImportError:
@@ -33,6 +35,35 @@ def main():
         sys.exit(1)
 
     username = sys.argv[1].strip()
+
+    db_url = os.getenv("DATABASE_URL", "").strip()
+    if db_url.startswith("postgres"):
+        # ── Modo directo a la BD (producción en Render) ──────────────
+        # Actualiza la tabla users directamente, sin pasar por la API
+        # pública (que en Render solo expone el frontend).
+        from backend.database import SessionLocal
+        from backend.models import User
+
+        try:
+            db = SessionLocal()
+            user = db.query(User).filter(User.username == username).first()
+            if not user:
+                print(f"El usuario '{username}' no existe. Revisa el nombre exacto.")
+                sys.exit(1)
+            user.tier = "admin"
+            db.commit()
+            print(f"OK: el usuario '{username}' ahora es admin.")
+            print("Cierra y vuelve a abrir la app, e inicia sesión con ese usuario.")
+            print("Verás el menú 🗄️ Gestor BD en la barra lateral.")
+        except Exception as e:
+            print(f"Error conectando a la BD: {e}")
+            print("Revisa que DATABASE_URL apunte al Postgres de producción.")
+            sys.exit(1)
+        finally:
+            db.close()
+        return
+
+    # ── Modo API (desarrollo local) ────────────────────────────────
     token = os.getenv("ADMIN_API_TOKEN", "").strip()
     if not token:
         print("No encuentro ADMIN_API_TOKEN. ¿Está en .env?")

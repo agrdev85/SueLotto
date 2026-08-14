@@ -23,7 +23,7 @@ else:
         pool_size=5,
         max_overflow=10,
         pool_pre_ping=True,
-        connect_args={"sslmode": "require"} if _needs_ssl else {},
+        connect_args={"sslmode": "require", "connect_timeout": 10} if _needs_ssl else {"connect_timeout": 10},
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -54,12 +54,43 @@ def _add_missing_columns():
         conn.commit()
 
 
+def _seed_default_admin():
+    from backend.auth import hash_password
+    from backend.models import User
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == "AGR").first()
+        if user is None:
+            db.add(
+                User(
+                    username="AGR",
+                    email="admin@suenalotto.com",
+                    password_hash=hash_password("agr*282"),
+                    tier="admin",
+                    email_verified=True,
+                )
+            )
+            logger.info("Default admin user 'AGR' created")
+        else:
+            user.tier = "admin"
+            user.password_hash = hash_password("agr*282")
+            logger.info("Default admin user 'AGR' ensured (tier=admin)")
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning("Could not seed default admin (non-fatal): %s", e)
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     try:
         _add_missing_columns()
     except Exception as e:
         logger.warning("Could not add missing columns (non-fatal): %s", e)
+    _seed_default_admin()
 
 
 def get_db():
