@@ -224,7 +224,8 @@ if not st.session_state.get("user"):
                         st.session_state["login_time"] = time.time()
                         st.rerun()
                     else:
-                        st.error("Error al registrar. Revisa los datos e intenta de nuevo.")
+                        detail = st.session_state.get("last_api_error")
+                        st.error(f"Error al registrar: {detail}" if detail else "Error al registrar. Revisa los datos e intenta de nuevo.")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_b:

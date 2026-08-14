@@ -110,6 +110,7 @@ def api_post(path, json_data=None):
         return r.json()
     except httpx.HTTPStatusError as e:
         detail = _extract_error(e)
+        st.session_state["last_api_error"] = detail
         if e.response.status_code == 429:
             st.toast("⏳ Demasiadas solicitudes. Espera un momento.", icon="⚠️")
         elif e.response.status_code == 401:

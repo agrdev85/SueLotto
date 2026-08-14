@@ -41,6 +41,9 @@ def _add_missing_columns():
         "email_verification_token": "VARCHAR(200)",
         "password_reset_token": "VARCHAR(200)",
         "password_reset_expires": "TIMESTAMP" if not IS_SQLITE else "DATETIME",
+        "tier": "VARCHAR(20) DEFAULT 'free'",
+        "tier_expires": "DATE",
+        "is_active": "BOOLEAN DEFAULT TRUE" if not IS_SQLITE else "BOOLEAN DEFAULT 1",
     }
 
     with engine.connect() as conn:
