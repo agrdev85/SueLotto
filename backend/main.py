@@ -90,11 +90,29 @@ def _import_historical_resultados():
     import actualizar_resultados
     for juego in ["Pick 3", "Pick 4"]:
         try:
-            nuevos = actualizar_resultados.actualizar_juego(juego)
-            logger.info("Historical import %s: %d records", juego, nuevos)
+            completado = actualizar_resultados.importar_historial_si_falta(juego)
+            logger.info("Historical import %s: completo=%s", juego, completado)
         except Exception as e:
             logger.error("Historical import %s failed: %s", juego, e)
     logger.info("Historical results import completed")
+
+
+def _startup_history_check():
+    """Al arrancar, si la tabla de resultados no tiene el histórico completo
+    (p. ej. una BD recién creada en producción), lanza la importación masiva
+    desde los PDFs oficiales en segundo plano."""
+    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    try:
+        import actualizar_resultados
+        if actualizar_resultados.falta_historial_alguna():
+            logger.info("Historial incompleto — iniciando importación desde PDFs en segundo plano")
+            _import_historical_resultados()
+        else:
+            logger.info("Historial completo — no hace falta importar")
+    except Exception as e:
+        logger.error("Historial check failed: %s", e)
 
 
 def _startup_catch_up():
@@ -123,12 +141,12 @@ def on_startup():
                     logger.info("Charada imported: %d records", count)
                 except Exception as e:
                     logger.error("Charada import failed: %s", e)
-            if db.query(Resultado).count() == 0:
-                logger.info("Resultados table empty — starting background import from Florida PDFs")
-                t = threading.Thread(target=_import_historical_resultados, daemon=True)
-                t.start()
         finally:
             db.close()
+        # Verifica el histórico de resultados al arrancar (importa los PDFs
+        # desde 1988 si la tabla está vacía o incompleta).
+        t = threading.Thread(target=_startup_history_check, daemon=True)
+        t.start()
         start_auto_updater()
         start_keepalive()
         t = threading.Thread(target=_startup_catch_up, daemon=True)

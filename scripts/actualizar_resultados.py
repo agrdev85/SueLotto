@@ -1,7 +1,10 @@
 """
-Script de actualización diaria desde PDFs.
-Descarga PDFs, extrae solo resultados posteriores a la última fecha registrada.
-Programar como Cron Job en Render.
+Actualización diaria de resultados desde la API oficial y los PDFs.
+- La API oficial solo trae el sorteo más reciente (rápida, para el mismo día).
+- El PDF histórico trae TODOS los sorteos (MIDDAY y EVENING) desde 1988;
+  se descarga/parsea solo cuando se detectan huecos y rellena todo lo que
+  falte por clave (fecha, juego, sorteo), sin depender de rangos de fecha.
+Ejecutado automáticamente por el scheduler (backend/auto_updater.py).
 """
 
 import sys
@@ -13,9 +16,54 @@ from backend.database import SessionLocal, init_db
 from backend.crud import bulk_insert_resultados
 from scripts.importar_historicos import (
     PDF_URLS, PDF_PATHS, descargar_pdf, extraer_resultados_pdf,
-    DATA_DIR
+    importar_juego, DATA_DIR
 )
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+
+
+def falta_historial(db, juego: str) -> bool:
+    """True si la tabla de resultados no tiene el histórico completo
+    (BD recién creada o importación parcial). El histórico oficial de
+    Pick 3 llega a 1988 y el de Pick 4 a 1991, así que si la fecha
+    mínima es posterior a esos años (o hay muy pocos registros) falta
+    el import completo."""
+    from backend.crud import get_rango_fechas
+    from backend.models import Resultado
+
+    # Año máximo de inicio legítimo por juego (primer sorteo oficial):
+    # Pick 3 → abril 1988, Pick 4 → julio 1991.
+    inicio_por_juego = {"Pick 3": 1990, "Pick 4": 1992}
+
+    min_fecha, _ = get_rango_fechas(db, juego)
+    if min_fecha is None or min_fecha.year > inicio_por_juego.get(juego, 1992):
+        return True
+    count = db.query(Resultado).filter(Resultado.juego == juego).count()
+    return count < 1000
+
+
+def falta_historial_alguna() -> bool:
+    db = SessionLocal()
+    try:
+        return any(falta_historial(db, juego) for juego in ("Pick 3", "Pick 4"))
+    finally:
+        db.close()
+
+
+def importar_historial_si_falta(juego: str):
+    """Si la tabla no tiene el histórico completo, importa TODO desde el
+    PDF oficial (desde 1988). Es idempotente: bulk_insert deduplica."""
+    db = SessionLocal()
+    try:
+        falta = falta_historial(db, juego)
+    finally:
+        db.close()
+
+    if not falta:
+        return False
+
+    print(f"  Historial incompleto para {juego} — importando histórico completo desde PDF")
+    importar_juego(juego)
+    return True
 
 
 def get_ultima_fecha(db, juego: str) -> date:
@@ -31,8 +79,21 @@ def get_ultima_fecha(db, juego: str) -> date:
     return result[0] if result else None
 
 
+def _claves_existentes(db, juego: str) -> set:
+    """Devuelve el conjunto de claves (fecha, sorteo) ya presentes en la BD
+    para un juego. Se usa para rellenar solo lo que falta, sin depender de
+    rangos de fecha (que dejan huecos, p. ej. sábados sin datos)."""
+    from backend.models import Resultado
+
+    rows = db.query(Resultado.fecha, Resultado.sorteo).filter(Resultado.juego == juego).all()
+    return {(r.fecha, r.sorteo) for r in rows}
+
+
 def actualizar_desde_pdf(juego: str):
-    """Vía antigua: descarga el PDF de historial y extrae los resultados."""
+    """Vía oficial de historial: el PDF trae TODOS los sorteos (MIDDAY y
+    EVENING) desde 1988. Inserta cualquier registro que falte en la BD
+    comparando por clave (fecha, juego, sorteo), rellenando así cualquier
+    hueco, sea anterior o posterior a la última fecha registrada."""
     # Descargar PDF actualizado
     pdf_path = PDF_PATHS[juego]
     if not descargar_pdf(PDF_URLS[juego], pdf_path):
@@ -42,26 +103,20 @@ def actualizar_desde_pdf(juego: str):
     resultados = extraer_resultados_pdf(pdf_path, juego)
     print(f"  Extraídos {len(resultados)} resultados del PDF")
 
-    db = SessionLocal()
-    try:
-        ultima_fecha = get_ultima_fecha(db, juego)
-    finally:
-        db.close()
-
-    if ultima_fecha:
-        nuevos = [r for r in resultados if r["fecha"] >= ultima_fecha]
-    else:
-        nuevos = resultados
-
-    print(f"  Nuevos desde última fecha: {len(nuevos)}")
-
-    if not nuevos:
+    if not resultados:
         return 0
 
     db = SessionLocal()
     try:
+        existentes = _claves_existentes(db, juego)
+        nuevos = [r for r in resultados if (r["fecha"], r["sorteo"]) not in existentes]
+        print(f"  Ya existentes: {len(existentes)} | Faltan: {len(nuevos)}")
+
+        if not nuevos:
+            return 0
+
         bulk_insert_resultados(db, nuevos)
-        print(f"  Insertados/actualizados {len(nuevos)} registros")
+        print(f"  Insertados/actualizados {len(nuevos)} registros (PDF)")
     except Exception as e:
         db.rollback()
         print(f"  ERROR en BD: {e}")
@@ -72,9 +127,42 @@ def actualizar_desde_pdf(juego: str):
     return len(nuevos)
 
 
-def actualizar_desde_api(juego: str):
-    """Vía oficial: toma los sorteos MIDDAY/EVENING de la API de floridalottery.com.
+def detectar_huecos(juego: str, dias: int = 30) -> bool:
+    """True si faltan sorteos (M/E) en los últimos `dias` días respecto a la
+    última fecha registrada, o si la BD está atrasada más de 3 días.
 
+    El día más reciente se excluye de la exigencia M+E porque puede estar
+    aún en curso (el mismo día lo cubre la API)."""
+    from backend.models import Resultado
+
+    db = SessionLocal()
+    try:
+        max_fecha = get_ultima_fecha(db, juego)
+        if max_fecha is None:
+            return True
+        if (date.today() - max_fecha).days > 3:
+            print(f"  BD atrasada: última fecha {max_fecha}")
+            return True
+
+        desde = max_fecha - timedelta(days=dias)
+        keys = {
+            (r.fecha, r.sorteo)
+            for r in db.query(Resultado.fecha, Resultado.sorteo)
+            .filter(Resultado.juego == juego, Resultado.fecha >= desde)
+        }
+        for i in range(1, dias + 1):
+            d = max_fecha - timedelta(days=i)
+            for s in ("M", "E"):
+                if (d, s) not in keys:
+                    print(f"  Hueco detectado: {d} {s}")
+                    return True
+        return False
+    finally:
+        db.close()
+
+
+def actualizar_desde_api(juego: str, ultima_fecha: date = None):
+    """Vía oficial: toma los sorteos MIDDAY/EVENING de la API de floridalottery.com.
     Devuelve la cantidad de registros nuevos insertados, o 0 si la API
     no aportó nada nuevo (o no estaba disponible)."""
     from backend.fl_api import fetch_latest_draws, normalize_draws, GAME_NAMES
@@ -108,12 +196,7 @@ def actualizar_desde_api(juego: str):
         if len(d["numbers"]) == 4:
             sorteos[-1]["n4"] = int(d["numbers"][3])
 
-    db = SessionLocal()
-    try:
-        ultima_fecha = get_ultima_fecha(db, juego)
-    finally:
-        db.close()
-    print(f"  Sorteos en API: {len(sorteos)} | Última fecha en BD: {ultima_fecha}")
+    print(f"  Sorteos en API: {len(sorteos)} | Última fecha base: {ultima_fecha}")
 
     if ultima_fecha:
         nuevos = [r for r in sorteos if r["fecha"] >= ultima_fecha]
@@ -140,14 +223,34 @@ def actualizar_desde_api(juego: str):
 def actualizar_juego(juego: str):
     print(f"\n=== Actualizando {juego} ===")
 
-    # Primero la API oficial (resultados del mismo día, con Fireball).
-    nuevos = actualizar_desde_api(juego)
-    if nuevos:
-        return nuevos
+    # Si la tabla no tiene el histórico completo (BD nueva o import parcial),
+    # importar TODO desde el PDF oficial ANTES de la actualización diaria.
+    importar_historial_si_falta(juego)
 
-    # Si la API no aporta nada nuevo (o falló), usar el PDF de historial,
-    # que cubre también huecos de varios días.
-    return actualizar_desde_pdf(juego)
+    # Capturar la fecha base UNA VEZ (antes de cualquier inserción).
+    db = SessionLocal()
+    try:
+        ultima_fecha = get_ultima_fecha(db, juego)
+    finally:
+        db.close()
+
+    # 1) API oficial: trae los sorteos del mismo día (rápida y barata).
+    nuevos_api = actualizar_desde_api(juego, ultima_fecha)
+
+    # 2) PDF histórico: solo se descarga/parsea si hay huecos (faltan
+    #    sorteos M/E de algún día reciente). Si hay, rellena TODO lo
+    #    que falte comparando por clave (fecha, sorteo), sin importar
+    #    si el hueco es anterior o posterior a la última fecha.
+    nuevos_pdf = 0
+    if detectar_huecos(juego):
+        print("  Huecos detectados — sincronizando con el PDF histórico")
+        nuevos_pdf = actualizar_desde_pdf(juego)
+    else:
+        print("  Sin huecos — PDF no necesario")
+
+    total = (nuevos_api or 0) + (nuevos_pdf or 0)
+    print(f"  Total nuevos {juego}: {total} (API: {nuevos_api or 0}, PDF: {nuevos_pdf or 0})")
+    return total
 
 
 def main():
