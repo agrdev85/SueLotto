@@ -9,7 +9,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 DEFAULT_MODELS = [
     os.getenv("GEMINI_MODEL", ""),
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
+    "gemini-3.6-flash",
 ]
 GOOGLE_AI_TIMEOUT_MS = int(os.getenv("GOOGLE_AI_TIMEOUT_MS", "8000"))
 

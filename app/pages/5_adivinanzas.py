@@ -38,8 +38,31 @@ st.markdown("""
 <style>
     .riddle-box { background: linear-gradient(135deg, #1e3a5f, #2d1b4e); border: 1px solid #4a3f6b; border-radius: 0.75rem; padding: 1.5rem; margin: 1rem 0; text-align: center; }
     .riddle-text { font-size: 1.3rem; color: #fbbf24; font-style: italic; line-height: 1.6; }
-    .ia-number { display: inline-block; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; font-weight: bold;
-                  font-size: 1.8rem; width: 3.5rem; height: 3.5rem; text-align: center; line-height: 3.5rem; border-radius: 0.5rem; margin: 0.25rem; }
+    .result-card { border: 1px solid #22c55e; padding: 1.5rem; }
+    .nums-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; padding: 1rem 0; }
+    .ia-num { display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+              background: linear-gradient(135deg, #22c55e, #16a34a); color: white; font-weight: bold;
+              min-width: 4rem; padding: 0.6rem 1rem; border-radius: 0.5rem; }
+    .ia-num-val { font-size: 1.8rem; line-height: 1; }
+    .ia-num-lbl { font-size: 0.6rem; opacity: 0.85; margin-top: 0.25rem; }
+    .razones-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.5rem; padding: 0.5rem 0; }
+    .razon-chip { display: flex; align-items: center; gap: 0.6rem; background: #334155; border-radius: 0.5rem; padding: 0.65rem 0.85rem; }
+    .razon-chip .num { display: inline-flex; align-items: center; justify-content: center; background: rgba(34,197,94,0.15); color: #4ade80; font-weight: 800; font-size: 0.95rem; min-width: 2rem; height: 2rem; border-radius: 0.35rem; }
+    .razon-chip .txt { color: #cbd5e1; font-size: 0.85rem; line-height: 1.35; }
+    .razon-box { background: #1e3a5f; border-left: 3px solid #3b82f6; border-radius: 0.5rem; padding: 1rem 1.25rem; margin-top: 0.75rem; }
+    .razon-box p { color: #cbd5e1; font-style: italic; margin: 0; font-size: 0.85rem; }
+
+    @media (max-width: 640px) {
+        .riddle-box { padding: 1rem 0.75rem; margin: 0.5rem 0; }
+        .riddle-text { font-size: 1.05rem; line-height: 1.5; }
+        .result-card { padding: 1rem 0.75rem; }
+        .ia-num { min-width: 3rem; padding: 0.4rem 0.65rem; }
+        .ia-num-val { font-size: 1.4rem; }
+        .ia-num-lbl { font-size: 0.5rem; }
+        .nums-grid { gap: 0.4rem; }
+        .razones-grid { grid-template-columns: 1fr; gap: 0.35rem; }
+        .razon-chip { padding: 0.5rem 0.65rem; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -87,77 +110,64 @@ interpretacion = st.text_area(
     key="adiv_interp",
 )
 
-col_btn, col_note = st.columns([1, 3])
-with col_btn:
-    analizar = st.button("🤖 Analizar con IA", type="primary", width='stretch')
-with col_note:
-    ia_status = api_get("/api/ia/status")
-    if ia_status:
-        gemini_ok = ia_status.get("gemini_disponible", False)
-        if gemini_ok:
-            badge = '<span style="background:#22c55e;color:white;padding:0.1rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;">Gemini activo</span>'
-        else:
-            badge = '<span style="background:#f59e0b;color:white;padding:0.1rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;">Análisis local</span>'
-    else:
-        badge = '<span style="background:#ef4444;color:white;padding:0.1rem 0.5rem;border-radius:0.25rem;font-size:0.7rem;">Sin conexión</span>'
-    st.markdown(
-        f'<span style="color:#64748b;font-size:0.85rem;">{badge} La IA analizará la adivinanza y tu interpretación '
-        'para sugerir números basados en la tabla de sueños.</span>',
-        unsafe_allow_html=True,
-    )
-st.markdown("</div>", unsafe_allow_html=True)
+analizar = st.button("🤖 Analizar adivinanza", type="primary", width='stretch')
 
 if analizar:
     if not adivinanza_input.strip() or not interpretacion.strip():
         st.warning("Por favor, completa tanto la adivinanza como tu interpretación.")
     else:
-        with st.spinner("🤖 La IA está analizando la adivinanza..."):
+        with st.spinner("🤖 Analizando la adivinanza..."):
             result = api_post(
                 "/api/adivinanza/analizar",
                 {"adivinanza": adivinanza_input, "interpretacion": interpretacion},
             )
-        
+
         if result and result.get("sugerencias"):
             sugerencias = result["sugerencias"]
             razonamiento = result.get("razonamiento", "")
-            
+
             st.markdown(
-                '<div class="card" style="border: 1px solid #22c55e;">'
-                '<h3 style="color:#22c55e;">✅ Resultado del Análisis</h3>',
+                '<div class="card result-card">'
+                '<h3 style="color:#22c55e;margin-bottom:0.5rem;">✅ Resultado del Análisis</h3>'
+                '<h4 style="color:#f1f5f9;margin:0 0 0.25rem 0;">Números Sugeridos</h4>',
                 unsafe_allow_html=True,
             )
-            
-            st.markdown('<h4 style="color:#f1f5f9;">Números Sugeridos</h4>', unsafe_allow_html=True)
-            nums_html = ""
+
+            nums_html = '<div class="nums-grid">'
             for s in sugerencias:
-                nums_html += f'<span class="ia-number">{s["numero"]}</span>'
-            st.markdown(f'<div style="text-align:center;padding:1rem;">{nums_html}</div>', unsafe_allow_html=True)
-            
-            st.markdown('<h4 style="color:#94a3b8;margin-top:1rem;">Razonamiento</h4>', unsafe_allow_html=True)
-            for s in sugerencias:
-                st.markdown(
-                    f'<div style="background:#334155;border-radius:0.5rem;padding:0.5rem 1rem;margin:0.25rem 0;">'
-                    f'<strong style="color:#fbbf24;">Número {s["numero"]}:</strong> '
-                    f'<span style="color:#94a3b8;">{s["razon"]}</span>'
-                    f'</div>', unsafe_allow_html=True
+                nums_html += (
+                    f'<div class="ia-num">'
+                    f'<span class="ia-num-val">{s["numero"]}</span>'
+                    f'</div>'
                 )
-            
+            nums_html += '</div>'
+            st.markdown(nums_html, unsafe_allow_html=True)
+
+            st.markdown('<h4 style="color:#94a3b8;margin:0.75rem 0 0.25rem 0;">Razonamiento</h4>', unsafe_allow_html=True)
+
+            razones_html = '<div class="razones-grid">'
+            for s in sugerencias:
+                razones_html += (
+                    f'<div class="razon-chip">'
+                    f'<span class="num">{s["numero"]}</span>'
+                    f'<span class="txt">{s["razon"]}</span>'
+                    f'</div>'
+                )
+            razones_html += '</div>'
+            st.markdown(razones_html, unsafe_allow_html=True)
+
             if razonamiento:
-                st.markdown("---")
                 st.markdown(
-                    f'<div style="background:#1e3a5f;border-radius:0.5rem;padding:1rem;border-left:3px solid #3b82f6;">'
-                    f'<p style="color:#cbd5e1;font-style:italic;">{razonamiento}</p>'
-                    f'</div>', unsafe_allow_html=True
+                    f'<div class="razon-box"><p>{razonamiento}</p></div>',
+                    unsafe_allow_html=True,
                 )
-            
+
             st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.info("⏳ Cargando datos desde la IA...")
 
 st.markdown("""
 <div style="text-align:center;padding:2rem;">
     <p style="color:#475569;font-size:0.8rem;">
-        💡 Consejo: Sé descriptivo en tu interpretación. La IA funciona mejor cuando le das contexto detallado.
+        💡 Consejo: Sé descriptivo en tu interpretación. El análisis funciona mejor cuando le das contexto detallado.
     </p>
 </div>
 """, unsafe_allow_html=True)
