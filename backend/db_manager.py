@@ -117,7 +117,11 @@ def _coerce(value, col_type):
 
 
 def _row_to_dict(model, obj) -> dict:
-    return {c.name: _serialize_value(getattr(obj, c.name)) for c in model.__table__.columns}
+    d = {c.name: _serialize_value(getattr(obj, c.name)) for c in model.__table__.columns}
+    # Sanitizar sorteo en export para no propagar valores legacy con comillas
+    if d.get("sorteo") and isinstance(d["sorteo"], str):
+        d["sorteo"] = d["sorteo"].strip().strip("'\"")
+    return d
 
 
 def _get_model(table: str):
@@ -141,7 +145,9 @@ IMPORT_BATCH = 500
 
 def _rows_to_columns(model, rows: list) -> list[dict]:
     """Convierte filas exportadas a listas de dicts para insert executemany.
-    Se omiten las columnas con valor None (se aplican defaults del server)."""
+    Se omiten las columnas con valor None (se aplican defaults del server).
+    Sanitiza `sorteo` quitando comillas literales heredadas de datos legacy
+    (p. ej. "'E'" -> "E", "'M'" -> "M") para que quepa en VARCHAR(1)."""
     out = []
     for row in rows:
         if not isinstance(row, dict):
@@ -149,7 +155,10 @@ def _rows_to_columns(model, rows: list) -> list[dict]:
         obj = {}
         for col in model.__table__.columns:
             if col.name in row and row[col.name] is not None:
-                obj[col.name] = _coerce(row[col.name], col.type)
+                val = _coerce(row[col.name], col.type)
+                if col.name == "sorteo" and isinstance(val, str):
+                    val = val.strip().strip("'\"")
+                obj[col.name] = val
         out.append(obj)
     return out
 
