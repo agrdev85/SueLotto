@@ -8,14 +8,35 @@ from backend.models import Resultado, Charada, Adivinanza, PosibleSalir, OtherGa
 
 
 def bulk_insert_resultados(db: Session, resultados: list[dict]):
+    """Inserta resultados en lotes (executemany). Deduplica contra lo que ya
+    existe en la BD con una sola consulta por juego, no una por fila (clave
+    para cargar 40k+ registros sobre Postgres remoto como Neon)."""
+    if not resultados:
+        return
+
+    from sqlalchemy import insert
+
+    juegos = {r["juego"] for r in resultados if isinstance(r, dict)}
+    existentes = set()
+    for juego in juegos:
+        keys = db.query(Resultado.fecha, Resultado.sorteo).filter(Resultado.juego == juego).all()
+        existentes.update((juego, f, s) for f, s in keys)
+
+    nuevos = []
+    vistos = set()
     for r in resultados:
-        existing = db.query(Resultado).filter(
-            Resultado.fecha == r["fecha"],
-            Resultado.juego == r["juego"],
-            Resultado.sorteo == r["sorteo"],
-        ).first()
-        if not existing:
-            db.add(Resultado(**r))
+        if not isinstance(r, dict):
+            continue
+        k = (r["juego"], r["fecha"], r["sorteo"])
+        if k in vistos:
+            continue
+        vistos.add(k)
+        if k not in existentes:
+            nuevos.append(r)
+
+    stmt = insert(Resultado)
+    for i in range(0, len(nuevos), 500):
+        db.execute(stmt, nuevos[i:i + 500])
     db.commit()
 
 

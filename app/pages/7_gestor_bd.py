@@ -307,7 +307,7 @@ with tab_export:
     st.markdown('<div class="card"><h3>📤 Exportar base de datos completa</h3>', unsafe_allow_html=True)
     st.markdown('<p style="color:#94a3b8;font-size:0.85rem;">Descarga un archivo JSON con <b>todas las tablas y registros</b>. Úsalo como respaldo o para transferir la BD a otro servidor.</p>', unsafe_allow_html=True)
 
-    export_data = api_get("/api/admin/db/export")
+    export_data = api_get("/api/admin/db/export", timeout=120)
     if export_data:
         json_bytes = json.dumps(export_data, ensure_ascii=False, indent=1, default=str).encode("utf-8")
         st.download_button(
@@ -336,14 +336,15 @@ with tab_export:
         except Exception:
             st.error("El archivo no es un JSON válido.")
             st.stop()
-        res = api_post("/api/admin/db/import", {"mode": import_mode, "data": payload})
+        res = api_post("/api/admin/db/import", {"mode": import_mode, "data": payload}, timeout=600)
         if res and res.get("status") == "ok":
             imported = res.get("imported", {})
             st.success(f"✅ Importación completada: {sum(imported.values())} registros en {len(imported)} tablas")
             for t, c in imported.items():
                 st.markdown(f'<p style="color:#94a3b8;font-size:0.8rem;margin:0;">&nbsp;&nbsp;• {TABLAS.get(t, t)}: <b style="color:#fbbf24;">{c}</b></p>', unsafe_allow_html=True)
         else:
-            st.error("La importación falló. Revisa el formato del archivo.")
+            detalle = st.session_state.get("last_api_error")
+            st.error(f"La importación falló. {detalle or 'Revisa el formato del archivo.'}")
 
 # ─── Tab 3: Backups ─────────────────────────────────────────────────
 with tab_backups:

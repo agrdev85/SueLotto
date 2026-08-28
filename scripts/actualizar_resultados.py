@@ -9,6 +9,7 @@ Ejecutado automáticamente por el scheduler (backend/auto_updater.py).
 
 import sys
 import os
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -19,6 +20,11 @@ from scripts.importar_historicos import (
     importar_juego, DATA_DIR
 )
 from datetime import date, datetime, timedelta
+
+# Serializa la importación masiva del histórico (evita que el hilo lazy de
+# arranque y catch_up/auto-updater inserten simultáneamente los mismos
+# registros al levantar el servidor con una BD vacía, p. ej. en Neon/Postgres).
+_hist_lock = threading.Lock()
 
 
 def falta_historial(db, juego: str) -> bool:
@@ -52,18 +58,19 @@ def falta_historial_alguna() -> bool:
 def importar_historial_si_falta(juego: str):
     """Si la tabla no tiene el histórico completo, importa TODO desde el
     PDF oficial (desde 1988). Es idempotente: bulk_insert deduplica."""
-    db = SessionLocal()
-    try:
-        falta = falta_historial(db, juego)
-    finally:
-        db.close()
+    with _hist_lock:
+        db = SessionLocal()
+        try:
+            falta = falta_historial(db, juego)
+        finally:
+            db.close()
 
-    if not falta:
-        return False
+        if not falta:
+            return False
 
-    print(f"  Historial incompleto para {juego} — importando histórico completo desde PDF")
-    importar_juego(juego)
-    return True
+        print(f"  Historial incompleto para {juego} — importando histórico completo desde PDF")
+        importar_juego(juego)
+        return True
 
 
 def get_ultima_fecha(db, juego: str) -> date:

@@ -80,10 +80,10 @@ def _make_headers():
     return headers
 
 
-def api_get(path, params=None):
+def api_get(path, params=None, timeout=20):
     headers = _make_headers()
     try:
-        r = httpx.get(f"{API_URL}{path}", params=params, headers=headers, timeout=20)
+        r = httpx.get(f"{API_URL}{path}", params=params, headers=headers, timeout=timeout)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPStatusError as e:
@@ -102,12 +102,12 @@ def api_get(path, params=None):
         return None
 
 
-def api_post(path, json_data=None, token=None):
+def api_post(path, json_data=None, token=None, timeout=20):
     headers = _make_headers()
     if token:
         headers["Authorization"] = f"Bearer {token}"
     try:
-        r = httpx.post(f"{API_URL}{path}", json=json_data or {}, headers=headers, timeout=20)
+        r = httpx.post(f"{API_URL}{path}", json=json_data or {}, headers=headers, timeout=timeout)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPStatusError as e:

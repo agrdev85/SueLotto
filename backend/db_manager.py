@@ -14,7 +14,7 @@ import logging
 import threading
 from datetime import datetime, date
 
-from sqlalchemy import Date, DateTime, Integer, Float, Boolean, String, Text
+from sqlalchemy import Date, DateTime, Integer, Float, Boolean, String, Text, insert
 from sqlalchemy.exc import IntegrityError
 
 from backend.database import SessionLocal, IS_SQLITE
@@ -133,6 +133,27 @@ def _apply_values(model, obj, data: dict):
             setattr(obj, col.name, _coerce(data[col.name], col.type))
 
 
+# Tamaño de lote para inserts masivos. Con distancias cortas (SQLite) un
+# lote mayor es más rápido; sobre Postgres remoto (Neon) lotes moderados
+# evitan errores de network/connection y mantienen la transacción viva.
+IMPORT_BATCH = 500
+
+
+def _rows_to_columns(model, rows: list) -> list[dict]:
+    """Convierte filas exportadas a listas de dicts para insert executemany.
+    Se omiten las columnas con valor None (se aplican defaults del server)."""
+    out = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        obj = {}
+        for col in model.__table__.columns:
+            if col.name in row and row[col.name] is not None:
+                obj[col.name] = _coerce(row[col.name], col.type)
+        out.append(obj)
+    return out
+
+
 # ─── Export / Import ────────────────────────────────────────────────
 
 def export_db(db=None) -> dict:
@@ -163,8 +184,10 @@ def import_db(data: dict, mode: str = "replace", db=None) -> dict:
     Importa una exportación/backup.
 
     mode:
-      - replace: borra la tabla y reinserta los datos
-      - merge:  actualiza/inserta fila por fila (requiere 'id' presente)
+      - replace: borra la tabla y reinserta los datos (usando inserts por
+        lotes ejecutados con executemany → rápido incluso contra Postgres
+        remoto como Neon, donde la importación fila a fila se colgaba).
+      - merge:  actualiza/inserta fila por fila (requiere 'id' presente).
     """
     if not isinstance(data, dict):
         raise ValueError("Formato inválido: se esperaba un objeto JSON")
@@ -175,44 +198,53 @@ def import_db(data: dict, mode: str = "replace", db=None) -> dict:
     own = db is None
     if own:
         db = SessionLocal()
+    imported = {}
     try:
-        imported = {}
         for name, model in TABLE_MODELS:
             rows = tables.get(name)
-            if not isinstance(rows, list) or not rows:
-                if mode == "replace" and name in tables:
+            try:
+                if not isinstance(rows, list) or not rows:
+                    if mode == "replace" and name in tables:
+                        db.query(model).delete()
+                        db.flush()
+                    continue
+
+                if mode == "replace":
                     db.query(model).delete()
-                continue
+                    db.flush()
+                    prepared = _rows_to_columns(model, rows)
+                    stmt = insert(model)
+                    for i in range(0, len(prepared), IMPORT_BATCH):
+                        db.execute(stmt, prepared[i:i + IMPORT_BATCH])
+                        db.commit()
+                    imported[name] = len(prepared)
+                else:
+                    count = 0
+                    for row in rows:
+                        if not isinstance(row, dict) or row.get("id") is None:
+                            continue
+                        existing = db.get(model, int(row["id"]))
+                        if existing is None:
+                            existing = model()
+                        _apply_values(model, existing, row)
+                        db.add(existing)
+                        count += 1
+                    db.commit()
+                    imported[name] = count
+            except Exception as e:
+                db.rollback()
+                raise ValueError(f"Tabla '{name}': {e}")
 
-            if mode == "replace":
-                db.query(model).delete()
-                db.flush()
-                for row in rows:
-                    obj = model()
-                    _apply_values(model, obj, row)
-                    db.add(obj)
-                db.flush()
-                imported[name] = len(rows)
-            else:
-                count = 0
-                for row in rows:
-                    if not isinstance(row, dict) or row.get("id") is None:
-                        continue
-                    existing = db.get(model, int(row["id"]))
-                    if existing is None:
-                        existing = model()
-                    _apply_values(model, existing, row)
-                    db.add(existing)
-                    count += 1
-                db.flush()
-                imported[name] = count
-
-        db.commit()
         _reset_sequences(db)
         return {"status": "ok", "mode": mode, "imported": imported}
     except IntegrityError as e:
         db.rollback()
         raise ValueError(f"Violación de unicidad o integridad: {e.orig}")
+    except ValueError:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise ValueError(f"Error al importar: {e}")
     finally:
         if own:
             db.close()
