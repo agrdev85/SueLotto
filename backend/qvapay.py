@@ -28,7 +28,7 @@ _promo_lock = threading.Lock()
 PLANS = {
     "pro": {
         "name": "Pro Mensual",
-        "amount": 1.00,
+        "amount": 1.99,
         "currency": "USD",
         "days": 30,
     },
@@ -93,6 +93,14 @@ def _sign(data: dict) -> str:
     ).hexdigest()
 
 
+def _sign_webhook(data: dict) -> str:
+    msg = json.dumps(data, separators=(",", ":"))
+    secret = QVAPAY_WEBHOOK_SECRET or QVAPAY_SECRET
+    return hmac.new(
+        secret.encode(), msg.encode(), hashlib.sha256
+    ).hexdigest()
+
+
 def create_payment_url(
     plan_id: str, username: str, email: str, user_id: int
 ) -> Optional[dict]:
@@ -118,8 +126,8 @@ def create_payment_url(
         "description": f"{plan['name']} - {username}",
         "external_id": f"sl_{user_id}_{plan_id}_{int(datetime.utcnow().timestamp())}",
         "callback_url": f"{APP_URL.rstrip('/')}/api/payments/webhook",
-        "success_url": f"{APP_URL}/payment/success?plan={plan_id}",
-        "cancel_url": f"{APP_URL}/payment/cancel",
+        "success_url": f"{APP_URL}/10_payment_success?plan={plan_id}",
+        "cancel_url": f"{APP_URL}/11_payment_cancel",
         "customer_email": email,
         "customer_username": username,
     }
@@ -148,7 +156,7 @@ def create_payment_url(
 
 
 def verify_webhook(data: dict, signature: str) -> bool:
-    expected = _sign(data)
+    expected = _sign_webhook(data)
     return hmac.compare_digest(expected, signature)
 
 

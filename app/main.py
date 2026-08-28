@@ -20,6 +20,15 @@ init_session_state()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+st.markdown("""
+<style>
+    [data-testid="stSidebar"] a[href*="10_payment_success"],
+    [data-testid="stSidebar"] a[href*="11_payment_cancel"] {
+        display: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 
 def _page(*rel: str):
     return os.path.join(ROOT, "app", *rel)
@@ -37,6 +46,9 @@ nav_pages = [
     st.Page(_page("pages", "5_adivinanzas.py"), title="Adivinanzas", icon="🪄"),
     st.Page(_page("pages", "6_matriz_charada.py"), title="Matriz Charada", icon="🧮"),
     st.Page(_page("pages", "8_soporte.py"), title="Soporte", icon="🛟"),
+    st.Page(_page("pages", "9_reset_password.py"), title="Restablecer Contraseña", icon="🔐"),
+    st.Page(_page("pages", "10_payment_success.py"), title="Pago Exitoso", icon="✅", url_path="10_payment_success"),
+    st.Page(_page("pages", "11_payment_cancel.py"), title="Pago Cancelado", icon="❌", url_path="11_payment_cancel"),
 ]
 
 # El Gestor de BD solo se muestra en el menú si el usuario logueado es admin

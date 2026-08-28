@@ -14,7 +14,7 @@ con números, bola extra (Fireball/Powerball/Mega Ball/Cash Ball), fecha
 de sorteo y tipo de sorteo (MIDDAY/EVENING, etc.).
 """
 
-import requests
+import httpx
 from datetime import datetime, date
 from typing import Optional
 
@@ -105,7 +105,7 @@ def _parse_draw_date(raw: str) -> Optional[date]:
 
 def fetch_latest_draws() -> list[dict]:
     """Devuelve la lista cruda de sorteos más recientes de todos los juegos."""
-    resp = requests.get(LATEST_ENDPOINT, headers=HEADERS, timeout=TIMEOUT)
+    resp = httpx.get(LATEST_ENDPOINT, headers=HEADERS, timeout=TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
     if not isinstance(data, list):

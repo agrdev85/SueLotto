@@ -9,21 +9,7 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 logger = logging.getLogger("adivinanza_ai")
 
-# Quick self-test on import
-_gemini_disponible = False
-if GEMINI_API_KEY:
-    try:
-        from google import genai as genai_client
-        client = genai_client.Client(api_key=GEMINI_API_KEY)
-        # Just check the API key format is plausible
-        if GEMINI_API_KEY.startswith("AIza") or len(GEMINI_API_KEY) > 20:
-            _gemini_disponible = True
-        else:
-            logger.warning("GEMINI_API_KEY tiene formato inesperado, se usará fallback local")
-    except Exception as e:
-        logger.warning(f"Error al inicializar Gemini: {e}")
-else:
-    logger.warning("GEMINI_API_KEY no configurada, se usará análisis local")
+_gemini_disponible = bool(GEMINI_API_KEY)
 
 # Cargar la tabla Charada 1-100 DESDE EL JSON local (sin necesidad de IA)
 _CHARADA_DATA = None

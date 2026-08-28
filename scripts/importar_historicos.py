@@ -9,12 +9,7 @@ Parseo con pdfplumber + regex, carga masiva a la BD.
 import sys
 import os
 import re
-import ssl
-import requests
-import pdfplumber
 from datetime import datetime, date
-from urllib3.poolmanager import PoolManager
-from requests.adapters import HTTPAdapter
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -44,25 +39,19 @@ PATTERN_PICK4 = re.compile(
 )
 
 
-class _LegacySSLAdapter(HTTPAdapter):
-    """Adapter that uses a more permissive SSL context for legacy servers."""
-    def init_poolmanager(self, *args, **kwargs):
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
-        kwargs["ssl_context"] = ctx
-        return super().init_poolmanager(*args, **kwargs)
-
-
 _session = None
 
 
 def _get_session():
     global _session
     if _session is None:
+        import requests
         _session = requests.Session()
-        _session.mount("https://", _LegacySSLAdapter())
+        _session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Accept": "application/pdf,*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
     return _session
 
 
@@ -78,11 +67,11 @@ def descargar_pdf(url: str, path: str) -> bool:
                 f.write(chunk)
         print(f"  Guardado en {path} ({os.path.getsize(path)} bytes)")
         return True
-    except Exception:
+    except Exception as e:
         if os.path.exists(path):
-            print(f"  Sin conexión — usando archivo local: {path}")
+            print(f"  Sin conexión ({type(e).__name__}: {e}) — usando archivo local: {path}")
             return True
-        print(f"  [ERROR] No se pudo descargar {url} y no hay archivo local")
+        print(f"  [ERROR] No se pudo descargar {url}: {type(e).__name__}: {e}")
         return False
 
 
@@ -99,6 +88,7 @@ def parsear_fecha(mmddyy: str):
 
 def extraer_resultados_pdf(pdf_path: str, juego: str) -> list[dict]:
     """Extrae resultados del PDF usando pdfplumber."""
+    import pdfplumber
     pattern = PATTERN_PICK4 if juego == "Pick 4" else PATTERN_PICK3
     
     resultados = []

@@ -13,8 +13,6 @@ if scripts_dir not in sys.path:
 from backend.database import SessionLocal, init_db
 from backend.crud import bulk_insert_resultados, bulk_insert_posibles_salir
 from backend.lottery_analyzer import obtener_posibles_salir
-import importar_historicos
-import actualizar_resultados
 
 logger = logging.getLogger("suenalotto.autoupdater")
 
@@ -115,6 +113,8 @@ def run_update():
     _running.set()
     _log("=== Auto-update iniciado ===")
     from backend.fl_scraper import scrape_and_store_other_games
+    import importar_historicos
+    import actualizar_resultados
 
     try:
         init_db()

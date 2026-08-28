@@ -205,6 +205,23 @@ if not st.session_state.get("user"):
                         st.rerun()
                     else:
                         st.error("Usuario o contraseña incorrectos")
+            if st.button("¿Olvidaste tu contraseña?", key="forgot_btn", type="secondary"):
+                st.session_state["show_forgot"] = True
+            if st.session_state.get("show_forgot"):
+                with st.form("forgot_form", clear_on_submit=True):
+                    forgot_email = st.text_input("Email", placeholder="tu@email.com", key="forgot_email")
+                    if st.form_submit_button("Enviar instrucciones", type="primary"):
+                        if forgot_email:
+                            resp = api_post("/api/auth/forgot-password", {"email": forgot_email})
+                            if resp and resp.get("status") == "ok":
+                                st.success("Si el email existe, recibirás instrucciones para restablecer tu contraseña.")
+                            else:
+                                st.error("No se pudo procesar la solicitud. Intenta de nuevo.")
+                        else:
+                            st.warning("Ingresa tu email.")
+                if st.button("← Volver al login", key="back_to_login"):
+                    st.session_state["show_forgot"] = False
+                    st.rerun()
         with tab_register:
             with st.form("register_form"):
                 ru = st.text_input("Usuario", placeholder="Elige un nombre", key="reg_user")
@@ -212,7 +229,7 @@ if not st.session_state.get("user"):
                 rp = st.text_input("Contraseña", type="password", placeholder="Mínimo 4 caracteres", key="reg_pass")
                 plan_opts = {
                     "free": "Gratis",
-                    "pro": f"Pro Mensual — ${_plans_api.get('pro', {}).get('amount', 1):.2f}/mes",
+                    "pro": f"Pro Mensual — ${_plans_api.get('pro', {}).get('amount', 1.99):.2f}/mes",
                     "lifetime": _fmt_plan("lifetime", _plans_api, _promo_api),
                 }
                 plan_sel = st.radio("Elige tu plan", options=list(plan_opts.keys()), format_func=lambda x: plan_opts[x], index=0)
@@ -247,7 +264,7 @@ if not st.session_state.get("user"):
         with tc2:
             st.markdown(
                 '<div class="tier-card pro"><div class="tier-badge">⭐ Popular</div><h4 style="color:#fbbf24;">Pro Mensual</h4>'
-                '<div class="tier-price">$1<span>/mes</span></div>'
+                '<div class="tier-price">$1.99<span>/mes</span></div>'
                 '<div style="text-align:left;margin-top:1rem;font-size:0.85rem;">'
                 '<p><span class="feature-yes">✅</span> Todo incluido</p>'
                 '<p><span class="feature-yes">✅</span> Sin límites</p>'
@@ -403,8 +420,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 user_tier = (tier_info or {}).get("tier", "free")
+days_remaining = (tier_info or {}).get("days_remaining")
+expiring_soon = (tier_info or {}).get("expiring_soon", False)
+
+if expiring_soon and days_remaining is not None:
+    plural = "s" if days_remaining != 1 else ""
+    st.warning(
+        f"⏰ Tu plan **Pro** vence en **{days_remaining} día{plural}**. "
+        f"Renueva para no perder acceso a estadísticas, adivinanzas y matriz. "
+        f"Después de vencer, tu cuenta volverá al plan **Gratis**."
+    )
+
 if user_tier == "free":
-    st.warning("🔒 Tienes el plan **Gratis**. Actualiza a **Pro** ($1/mes) o **De por Vida** ($50) para desbloquear estadísticas avanzadas, matriz charada, y adivinanzas IA.")
+    st.warning("🔒 Tienes el plan **Gratis**. Actualiza a **Pro** ($1.99/mes) o **De por Vida** ($50) para desbloquear estadísticas avanzadas, matriz charada, y adivinanzas IA.")
 
 st.markdown('<div class="hero"><h1>📅 Sorteos</h1><p>Resultados en vivo • Pick 3 & Pick 4 • Análisis Charada</p></div>', unsafe_allow_html=True)
 
@@ -825,7 +853,7 @@ cols_p = st.columns(3)
 plan_info = [
     {"id": "free", "name": "Gratis", "price": "$0/mes", "color": "#94a3b8",
      "features": ["Últimos sorteos", "Búsqueda histórica (3/día)", "Sueños (1/día)"]},
-    {"id": "pro", "name": "Pro Mensual", "price": f"${_plans_api.get('pro', {}).get('amount', 1):.2f}/mes", "color": "#fbbf24",
+    {"id": "pro", "name": "Pro Mensual", "price": f"${_plans_api.get('pro', {}).get('amount', 1.99):.2f}/mes", "color": "#fbbf24",
      "features": ["Todo incluido", "Sin límites diarios", "Estadísticas avanzadas",
                    "Matriz Charada", "Adivinanzas IA", "Soporte prioritario"]},
     {"id": "lifetime", "name": "De por Vida", "price": f"${_lt_price:.2f} único", "color": "#8b5cf6",

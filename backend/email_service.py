@@ -60,7 +60,7 @@ def send_verification_email(to: str, token: str) -> bool:
 
 
 def send_password_reset(to: str, token: str) -> bool:
-    link = f"{APP_URL}/reset-password?token={token}"
+    link = f"{APP_URL}/9_reset_password?token={token}"
     html = f"""
     <html><body style="font-family:sans-serif;background:#0a0e1a;padding:2rem;">
     <div style="max-width:480px;margin:auto;background:#1e293b;border-radius:1rem;padding:2rem;border:1px solid #334155;">
@@ -102,6 +102,23 @@ def send_payment_receipt(to: str, username: str, plan: str, amount: str, tx_id: 
     <p style="color:#64748b;font-size:0.85rem;">Ya puedes disfrutar de todas las funcionalidades de tu plan.</p>
     </div></body></html>"""
     return _send_email(to, f"Recibo de pago {plan} - SueñaLotto", html)
+
+
+def send_expiry_reminder(to: str, username: str, days_left: int) -> bool:
+    renew_url = APP_URL
+    plural = "s" if days_left != 1 else ""
+    html = f"""
+    <html><body style="font-family:sans-serif;background:#0a0e1a;padding:2rem;">
+    <div style="max-width:480px;margin:auto;background:#1e293b;border-radius:1rem;padding:2rem;border:1px solid #334155;">
+    <h1 style="color:#fbbf24;text-align:center;">🌟 SueñaLotto</h1>
+    <p style="color:#94a3b8;text-align:center;">Hola {username}, tu plan Pro vence en <strong>{days_left} día{plural}</strong>.</p>
+    <p style="color:#94a3b8;text-align:center;">Renueva para seguir disfrutando de estadísticas ilimitadas, adivinanzas IA, matriz charada y más.</p>
+    <div style="text-align:center;margin:1.5rem 0;">
+    <a href="{renew_url}" style="background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#0f172a;padding:0.8rem 2rem;border-radius:0.5rem;text-decoration:none;font-weight:700;">Renovar Plan Pro — $1.99/mes</a>
+    </div>
+    <p style="color:#64748b;font-size:0.8rem;text-align:center;">Si ya renovaste, ignora este mensaje.</p>
+    </div></body></html>"""
+    return _send_email(to, f"Tu plan Pro vence en {days_left} día{plural} - SueñaLotto", html)
 
 
 def send_contact_message(name: str, contact: str, subject: str, message: str, username: str = "") -> bool:

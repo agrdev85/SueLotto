@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import json
 import secrets
 import logging
 import threading
@@ -38,6 +39,7 @@ from backend.rate_limit import RateLimitMiddleware
 from backend.email_service import (
     send_verification_email, send_password_reset,
     send_welcome_email, send_payment_receipt, send_contact_message,
+    send_expiry_reminder,
     is_configured as email_configured,
 )
 from backend.qvapay import create_payment_url, process_webhook, verify_webhook, is_configured as qvapay_configured, PLANS, get_promo_info, increment_promo_purchases
@@ -48,6 +50,40 @@ from backend.db_manager import (
 )
 
 app = FastAPI(title="SueñaLotto API", version="2.0.0")
+
+_history_lock = threading.Lock()
+_history_loaded = False
+_history_importing = False
+
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_EXPIRY_EMAIL_FILE = os.path.join(_BASE_DIR, "data", "expiry_email_log.json")
+_expiry_email_lock = threading.Lock()
+
+
+def _maybe_send_expiry_email(user, days_remaining: int):
+    if not email_configured() or days_remaining > 5 or days_remaining < 1:
+        return
+    key = f"{user.id}_{user.tier_expires}"
+    with _expiry_email_lock:
+        try:
+            if os.path.exists(_EXPIRY_EMAIL_FILE):
+                with open(_EXPIRY_EMAIL_FILE, "r") as f:
+                    log = json.load(f)
+            else:
+                log = {}
+        except Exception:
+            log = {}
+        if log.get(str(user.id)) == key:
+            return
+        sent = send_expiry_reminder(user.email, user.username, days_remaining)
+        if sent:
+            log[str(user.id)] = key
+            try:
+                os.makedirs(os.path.dirname(_EXPIRY_EMAIL_FILE), exist_ok=True)
+                with open(_EXPIRY_EMAIL_FILE, "w") as f:
+                    json.dump(log, f)
+            except Exception:
+                pass
 
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:8501").split(",")
 app.add_middleware(
@@ -82,48 +118,45 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
 
 # ─── Startup ───────────────────────────────────────────────────────
 
-def _import_historical_resultados():
-    logger.info("Historical results import started (background)")
-    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
-    if scripts_dir not in sys.path:
-        sys.path.insert(0, scripts_dir)
-    import actualizar_resultados
-    for juego in ["Pick 3", "Pick 4"]:
-        try:
-            completado = actualizar_resultados.importar_historial_si_falta(juego)
-            logger.info("Historical import %s: completo=%s", juego, completado)
-        except Exception as e:
-            logger.error("Historical import %s failed: %s", juego, e)
-    logger.info("Historical results import completed")
+# ─── Lazy history import ─────────────────────────────────────────────
 
-
-def _startup_history_check():
-    """Al arrancar, si la tabla de resultados no tiene el histórico completo
-    (p. ej. una BD recién creada en producción), lanza la importación masiva
-    desde los PDFs oficiales en segundo plano."""
-    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
-    if scripts_dir not in sys.path:
-        sys.path.insert(0, scripts_dir)
+def _lazy_import_history():
+    global _history_importing
     try:
+        logger.info("Lazy import: starting historical PDF import")
+        _history_importing = True
+        scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
         import actualizar_resultados
-        if actualizar_resultados.falta_historial_alguna():
-            logger.info("Historial incompleto — iniciando importación desde PDFs en segundo plano")
-            _import_historical_resultados()
-        else:
-            logger.info("Historial completo — no hace falta importar")
+        for juego in ["Pick 3", "Pick 4"]:
+            try:
+                completado = actualizar_resultados.importar_historial_si_falta(juego)
+                logger.info("Lazy import %s: completo=%s", juego, completado)
+            except Exception as e:
+                logger.error("Lazy import %s failed: %s", juego, e)
+        logger.info("Lazy import: historical results import completed")
     except Exception as e:
-        logger.error("Historial check failed: %s", e)
+        logger.error("Lazy import failed: %s", e)
+    finally:
+        global _history_loaded
+        _history_loaded = True
+        _history_importing = False
 
 
-def _startup_catch_up():
-    """Poco después de arrancar, si los históricos están atrasados (p. ej. la
-    app durmió y se perdió alguna actualización programada), ejecuta la
-    actualización pendiente."""
-    time.sleep(20)
-    try:
-        catch_up_if_stale()
-    except Exception as e:
-        logger.error("Catch-up de históricos falló: %s", e)
+def _ensure_history_loaded():
+    """Llamar en endpoints que necesitan datos históricos.
+    Si no se ha cargado aún, lanza la importación en background."""
+    global _history_importing
+    if _history_loaded:
+        return
+    with _history_lock:
+        if _history_loaded:
+            return
+        if not _history_importing:
+            _history_importing = True
+            t = threading.Thread(target=_lazy_import_history, daemon=True)
+            t.start()
 
 
 @app.on_event("startup")
@@ -143,15 +176,17 @@ def on_startup():
                     logger.error("Charada import failed: %s", e)
         finally:
             db.close()
-        # Verifica el histórico de resultados al arrancar (importa los PDFs
-        # desde 1988 si la tabla está vacía o incompleta).
-        t = threading.Thread(target=_startup_history_check, daemon=True)
-        t.start()
         start_auto_updater()
         start_keepalive()
-        t = threading.Thread(target=_startup_catch_up, daemon=True)
-        t.start()
         start_backup_scheduler()
+        threading.Thread(target=_ensure_history_loaded, daemon=True).start()
+        def _delayed_catch_up():
+            time.sleep(20)
+            try:
+                catch_up_if_stale()
+            except Exception as e:
+                logger.error("Catch-up de históricos falló: %s", e)
+        threading.Thread(target=_delayed_catch_up, daemon=True).start()
         logger.info("SueñaLotto API started")
         if not email_configured():
             logger.warning("SMTP not configured — emails disabled")
@@ -169,6 +204,11 @@ def health(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error("Health check failed: %s", e)
         return JSONResponse(status_code=503, content={"status": "error", "detail": str(e)})
+
+
+@app.get("/api/system/history-status")
+def api_history_status():
+    return {"loaded": _history_loaded, "importing": _history_importing}
 
 
 # ─── Admin Endpoints (authenticated) ────────────────────────────────
@@ -223,9 +263,13 @@ def api_admin_set_tier(
     if not user:
         raise HTTPException(404, "Usuario no encontrado")
     user.tier = new_tier
+    if new_tier == "pro":
+        user.tier_expires = date.today() + timedelta(days=30)
+    elif new_tier in ("lifetime", "admin", "free"):
+        user.tier_expires = None
     db.commit()
-    logger.info("Admin set tier: %s -> %s", username, new_tier)
-    return {"status": "ok", "username": username, "tier": new_tier}
+    logger.info("Admin set tier: %s -> %s (expires=%s)", username, new_tier, user.tier_expires)
+    return {"status": "ok", "username": username, "tier": new_tier, "tier_expires": user.tier_expires.isoformat() if user.tier_expires else None}
 
 
 # ─── Admin: Gestor de Base de Datos ─────────────────────────────────
@@ -428,6 +472,7 @@ def api_historicos(
     size: int = 50,
     db: Session = Depends(get_db),
 ):
+    _ensure_history_loaded()
     results, total = get_resultados_historicos(
         db, juego, sorteo, fecha_inicio, fecha_fin, contienen_digitos, page, size
     )
@@ -461,6 +506,7 @@ def api_frecuencias(
     dias: int = 30,
     db: Session = Depends(get_db),
 ):
+    _ensure_history_loaded()
     return get_frecuencias(db, juego, sorteo, dias)
 
 
@@ -470,6 +516,7 @@ def api_atrasados(
     sorteo: Optional[str] = Query(None, pattern="^(E|M)$"),
     db: Session = Depends(get_db),
 ):
+    _ensure_history_loaded()
     return get_atrasados(db, juego, sorteo)
 
 
@@ -479,6 +526,7 @@ def api_predicciones(
     sorteo: Optional[str] = Query(None, pattern="^(E|M)$"),
     db: Session = Depends(get_db),
 ):
+    _ensure_history_loaded()
     return generar_predicciones(db, juego, sorteo)
 
 
@@ -490,6 +538,7 @@ def api_calientes(
     dias: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
+    _ensure_history_loaded()
     return calcular_numeros_calientes(db, juego, sorteo, limite, dias)
 
 
@@ -501,6 +550,7 @@ def api_posibles_salir(
     use_ml: bool = Query(True),
     db: Session = Depends(get_db),
 ):
+    _ensure_history_loaded()
     return obtener_posibles_salir(db, juego, fecha, sorteo, use_ml)
 
 
@@ -650,6 +700,7 @@ def api_register(data: dict = Body(...), db: Session = Depends(get_db)):
         email=email,
         password_hash=hash_password(password),
         tier=tier,
+        tier_expires=date.today() + timedelta(days=30) if tier == "pro" else None,
         email_verified=False,
         email_verification_token=email_token,
     )
@@ -764,6 +815,15 @@ def api_check_tier(
         current_user.tier = "free"
         db.commit()
 
+    days_remaining = None
+    expiring_soon = False
+    if current_user and current_user.tier_expires and tier in ("pro",):
+        delta = (current_user.tier_expires - now).days
+        days_remaining = max(delta, 0)
+        expiring_soon = 0 < delta <= 5
+        if expiring_soon:
+            _maybe_send_expiry_email(current_user, days_remaining)
+
     can_use_historica = tier in ("free", "trial", "pro", "lifetime", "admin")
     can_use_suenos = tier in ("free", "trial", "pro", "lifetime", "admin")
     can_use_adivinanzas = tier in ("pro", "lifetime", "admin")
@@ -795,6 +855,9 @@ def api_check_tier(
         "suenos_limit": suenos_limit,
         "historica_today": historica_today,
         "historica_limit": historica_limit,
+        "tier_expires": current_user.tier_expires.isoformat() if current_user and current_user.tier_expires else None,
+        "days_remaining": days_remaining,
+        "expiring_soon": expiring_soon,
     }
 
 
@@ -992,6 +1055,10 @@ async def api_payments_webhook(request: Request):
     except Exception:
         raise HTTPException(400, "Invalid JSON")
 
+    is_prod = os.getenv("ENVIRONMENT", "").lower() == "production"
+    if is_prod and not signature:
+        logger.warning("Qvapay webhook missing signature in production")
+        raise HTTPException(401, "Missing signature")
     if signature and not verify_webhook(data, signature):
         logger.warning("Qvapay webhook invalid signature")
         raise HTTPException(401, "Invalid signature")

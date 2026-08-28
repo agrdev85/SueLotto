@@ -485,7 +485,7 @@ def render_pro_card(
         st.markdown(
             '<div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);'
             'border-radius:0.75rem;padding:0.75rem;margin:0.6rem 0;">'
-            '<p style="color:#fbbf24;font-size:1.1rem;font-weight:700;margin:0;">🚀 Plan Pro — $1/mes</p>'
+            '<p style="color:#fbbf24;font-size:1.1rem;font-weight:700;margin:0;">🚀 Plan Pro — $1.99/mes</p>'
             f'<p style="color:#94a3b8;font-size:0.85rem;margin:0.25rem 0 0;">{plan_features_html}</p>'
             '</div>',
             unsafe_allow_html=True,
