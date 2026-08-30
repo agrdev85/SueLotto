@@ -73,6 +73,45 @@ def importar_historial_si_falta(juego: str):
         return True
 
 
+def _stats_juego(juego: str) -> dict:
+    """Conteo y rango de fechas de un juego en la BD (para reportes)."""
+    from backend.models import Resultado
+    from backend.crud import get_rango_fechas
+
+    db = SessionLocal()
+    try:
+        min_f, max_f = get_rango_fechas(db, juego)
+        count = db.query(Resultado).filter(Resultado.juego == juego).count()
+        return {
+            "count": count,
+            "min_fecha": min_f.isoformat() if min_f else None,
+            "max_fecha": max_f.isoformat() if max_f else None,
+            "completo": not falta_historial(db, juego),
+        }
+    finally:
+        db.close()
+
+
+def repoblar_historial(juego: str = None, fuerza: bool = False) -> dict:
+    """Repobla el histórico de Pick 3 / Pick 4 desde el PDF oficial.
+
+    - juego=None → ambos juegos. fuerza=False → solo si falta el histórico
+      completo. fuerza=True → siempre descarga/parsa/reinserta (deduplica).
+    Devuelve un reporte con conteos y rangos de fechas por juego.
+    Usado por el admin (UI Gestor BD) cuando la carga automática falló."""
+    juegos = ["Pick 3", "Pick 4"] if not juego else [juego]
+    reporte = {"status": "ok", "juego": juego, "fuerza": fuerza, "juegos": {}}
+    with _hist_lock:
+        for j in juegos:
+            antes = _stats_juego(j)["count"]
+            if not fuerza and antes and _stats_juego(j)["completo"]:
+                reporte["juegos"][j] = {"salteado": True, "insertados": 0, **_stats_juego(j)}
+                continue
+            nuevos = importar_juego(j)
+            reporte["juegos"][j] = {"salteado": False, "insertados": nuevos, **_stats_juego(j)}
+    return reporte
+
+
 def get_ultima_fecha(db, juego: str) -> date:
     from backend.models import Resultado
     from sqlalchemy import desc

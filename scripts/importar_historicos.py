@@ -9,6 +9,7 @@ Parseo con pdfplumber + regex, carga masiva a la BD.
 import sys
 import os
 import re
+import time
 from datetime import datetime, date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -55,24 +56,31 @@ def _get_session():
     return _session
 
 
-def descargar_pdf(url: str, path: str) -> bool:
+def descargar_pdf(url: str, path: str, reintentos: int = 3) -> bool:
     """Descarga el PDF y lo guarda sobrescribiendo el anterior.
-    Si falla la descarga, usa el archivo local existente si hay uno."""
-    print(f"  Descargando {url}...")
-    try:
-        resp = _get_session().get(url, timeout=(10, 20), stream=True)
-        resp.raise_for_status()
-        with open(path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-        print(f"  Guardado en {path} ({os.path.getsize(path)} bytes)")
-        return True
-    except Exception as e:
-        if os.path.exists(path):
-            print(f"  Sin conexión ({type(e).__name__}: {e}) — usando archivo local: {path}")
+    - Reintenta hasta `reintentos` veces ante fallos de red (provisiones del
+      arranque en frío o redes lentas).
+    - Si TODOS los intentos fallan pero existe un archivo local, lo usa.
+    Devuelve True si hay un PDF utilizable en `path`."""
+    for intento in range(1, reintentos + 1):
+        print(f"  Descargando {url}... (intento {intento}/{reintentos})")
+        try:
+            resp = _get_session().get(url, timeout=(10, 15), stream=True)
+            resp.raise_for_status()
+            with open(path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    f.write(chunk)
+            print(f"  Guardado en {path} ({os.path.getsize(path)} bytes)")
             return True
-        print(f"  [ERROR] No se pudo descargar {url}: {type(e).__name__}: {e}")
-        return False
+        except Exception as e:
+            print(f"  [WARN] Intento {intento} falló: {type(e).__name__}: {e}")
+            if intento < reintentos:
+                time.sleep(2 * intento)
+    if os.path.exists(path):
+        print(f"  Sin conexión — usando archivo local existente: {path}")
+        return True
+    print(f"  [ERROR] No se pudo descargar {url}")
+    return False
 
 
 def parsear_fecha(mmddyy: str):
@@ -140,32 +148,37 @@ def extraer_resultados_pdf(pdf_path: str, juego: str) -> list[dict]:
         return []
 
 
-def importar_juego(juego: str):
+def importar_juego(juego: str) -> int:
+    """Importa el histórico completo de un juego desde el PDF oficial.
+    Devuelve la CANTIDAD de registros NUEVOS insertados."""
     print(f"\n=== Importando {juego} ===")
-    
+
     # Descargar PDF (sobrescribe si existe)
     pdf_path = PDF_PATHS[juego]
     if not descargar_pdf(PDF_URLS[juego], pdf_path):
         return 0
-    
+
     # Extraer resultados
     resultados = extraer_resultados_pdf(pdf_path, juego)
     if not resultados:
         return 0
-    
-    # Insertar en BD
+
+    # Insertar en BD y contar cuántos añadió de verdad
     db = SessionLocal()
     try:
+        from backend.models import Resultado
+        antes = db.query(Resultado).filter(Resultado.juego == juego).count()
         bulk_insert_resultados(db, resultados)
-        print(f"  Insertados/actualizados {len(resultados)} registros")
+        despues = db.query(Resultado).filter(Resultado.juego == juego).count()
+        nuevos = despues - antes
+        print(f"  Extrajidos {len(resultados)} | Insertados nuevos: {nuevos} | Total {juego}: {despues}")
+        return nuevos
     except Exception as e:
         db.rollback()
         print(f"  ERROR en BD: {e}")
         return 0
     finally:
         db.close()
-    
-    return len(resultados)
 
 
 def main():

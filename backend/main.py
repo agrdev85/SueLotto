@@ -118,7 +118,35 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
 
 # ─── Startup ───────────────────────────────────────────────────────
 
+# Estado persistente de la última repoblación manual (para la UI del admin)
+_POPULATE_STATUS_FILE = os.path.join(_BASE_DIR, "data", "populate_status.json")
+_populate_lock = threading.Lock()
+
+
+def _save_populate_status(data: dict):
+    try:
+        os.makedirs(os.path.dirname(_POPULATE_STATUS_FILE), exist_ok=True)
+        with open(_POPULATE_STATUS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, default=str)
+    except Exception as e:
+        logger.warning("No se pudo guardar populate_status: %s", e)
+
+
+def _load_populate_status() -> dict:
+    try:
+        if os.path.exists(_POPULATE_STATUS_FILE):
+            with open(_POPULATE_STATUS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.warning("No se pudo leer populate_status: %s", e)
+    return {}
+
+
 # ─── Lazy history import ─────────────────────────────────────────────
+
+_LAZY_RETRIES = 3
+_LAZY_RETRY_DELAY = 5
+
 
 def _lazy_import_history():
     global _history_importing
@@ -130,14 +158,19 @@ def _lazy_import_history():
             sys.path.insert(0, scripts_dir)
         import actualizar_resultados
         for juego in ["Pick 3", "Pick 4"]:
-            try:
-                completado = actualizar_resultados.importar_historial_si_falta(juego)
-                logger.info("Lazy import %s: completo=%s", juego, completado)
-            except Exception as e:
-                logger.error("Lazy import %s failed: %s", juego, e)
+            for intento in range(1, _LAZY_RETRIES + 1):
+                try:
+                    completado = actualizar_resultados.importar_historial_si_falta(juego)
+                    logger.info("Lazy import %s: completo=%s (intento %s)", juego, completado, intento)
+                    if not completado or not actualizar_resultados.falta_historial_alguna():
+                        break
+                except Exception as e:
+                    logger.error("Lazy import %s failed (intento %s/%s): %s",
+                                 juego, intento, _LAZY_RETRIES, e, exc_info=True)
+                time.sleep(_LAZY_RETRY_DELAY)
         logger.info("Lazy import: historical results import completed")
     except Exception as e:
-        logger.error("Lazy import failed: %s", e)
+        logger.error("Lazy import failed: %s", e, exc_info=True)
     finally:
         global _history_loaded
         _history_loaded = True
@@ -208,7 +241,25 @@ def health(db: Session = Depends(get_db)):
 
 @app.get("/api/system/history-status")
 def api_history_status():
-    return {"loaded": _history_loaded, "importing": _history_importing}
+    """Estado del histórico con conteos y rangos de fechas reales por juego.
+    Usado por el Gestor BD para verificar que la carga desde PDF quedó completa."""
+    juegos = {}
+    try:
+        import actualizar_resultados
+        for j in ("Pick 3", "Pick 4"):
+            try:
+                juegos[j] = actualizar_resultados._stats_juego(j)
+            except Exception as e:
+                logger.warning("history-status %s falló: %s", j, e)
+                juegos[j] = {"count": 0, "min_fecha": None, "max_fecha": None, "completo": False, "error": str(e)}
+    except Exception as e:
+        logger.warning("history-status: %s", e)
+    return {
+        "loaded": _history_loaded,
+        "importing": _history_importing,
+        "juegos": juegos,
+        "last_populate": _load_populate_status(),
+    }
 
 
 # ─── Admin Endpoints (authenticated) ────────────────────────────────
@@ -353,6 +404,45 @@ def api_db_import(
     except Exception as e:
         logger.error("Import de BD falló: %s", e)
         raise HTTPException(400, f"Error al importar: {e}")
+
+
+@app.post("/api/admin/db/populate-historical")
+def api_db_populate_historical(
+    data: dict = Body(default={}),
+    admin: User = Depends(_require_admin),
+):
+    """Repobla el histórico (Pick 3/Pick 4) desde el PDF oficial.
+    - juego: "Pick 3" | "Pick 4" | null → ambos
+    - fuerza: True fuerza la descarga/inserción aunque el histórico exista.
+    Devuelve un reporte con conteos y rangos de fechas por juego."""
+    juego = data.get("juego") or None
+    fuerza = bool(data.get("fuerza", False))
+    if juego and juego not in ("Pick 3", "Pick 4"):
+        raise HTTPException(400, "juego debe ser 'Pick 3' o 'Pick 4'")
+    if not _populate_lock.acquire(blocking=False):
+        raise HTTPException(409, "Ya hay una repoblación en curso. Intenta en unos minutos.")
+    try:
+        scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import actualizar_resultados
+        reporte = actualizar_resultados.repoblar_historial(juego=juego, fuerza=fuerza)
+        reporte["ejecutado"] = datetime.now().isoformat()
+        _save_populate_status(reporte)
+        return reporte
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Repoblación histórica falló: %s", e, exc_info=True)
+        raise HTTPException(500, f"Error al repoblar históricos: {e}")
+    finally:
+        _populate_lock.release()
+
+
+@app.get("/api/admin/db/populate-historical/status")
+def api_db_populate_status(admin: User = Depends(_require_admin)):
+    """Último resultado de la repoblación histórica (sin volver a ejecutarla)."""
+    return _load_populate_status()
 
 
 @app.get("/api/admin/db/backups")

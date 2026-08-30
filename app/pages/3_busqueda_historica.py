@@ -1,5 +1,4 @@
 import streamlit as st
-import pandas as pd
 from datetime import date, timedelta
 import os, sys
 from dotenv import load_dotenv
@@ -132,6 +131,7 @@ if buscar or "hist_resultados" in st.session_state:
                 "Números": nums,
             })
 
+        import pandas as pd
         df = pd.DataFrame(rows)
         st.dataframe(
             df,

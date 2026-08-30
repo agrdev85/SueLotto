@@ -49,7 +49,7 @@ SENSITIVE_USER_COLS = {
 }
 
 
-def _api_call(method: str, path: str, **kwargs):
+def _api_call(method: str, path: str, timeout: float = 20, **kwargs):
     """Llamada HTTP con manejo amigable de errores.
     Devuelve (data, None) en éxito o (None, mensaje_error)."""
     try:
@@ -57,7 +57,7 @@ def _api_call(method: str, path: str, **kwargs):
             method,
             f"{API_URL}{path}",
             headers={"Authorization": f"Bearer {st.session_state.get('token', '')}"},
-            timeout=20,
+            timeout=timeout,
             **kwargs,
         )
     except httpx.ConnectError:
@@ -218,7 +218,7 @@ def open_create(table, columns):
             st.rerun()
 
 
-tab_tablas, tab_export, tab_backups = st.tabs(["📋 Tablas y Registros", "📤 Exportar / Importar", "💾 Copias de Seguridad"])
+tab_tablas, tab_export, tab_backups, tab_historicos = st.tabs(["📋 Tablas y Registros", "📤 Exportar / Importar", "💾 Copias de Seguridad", "📜 Históricos (PDF)"])
 
 # ─── Tab 1: CRUD ────────────────────────────────────────────────────
 with tab_tablas:
@@ -401,3 +401,94 @@ with tab_backups:
                         st.rerun()
                     else:
                         st.error("No se pudo eliminar.")
+
+# ─── Tab 4: Históricos (PDF) ────────────────────────────────────────
+with tab_historicos:
+    st.markdown('<div class="card"><h3>📜 Históricos desde PDF (Pick 3 / Pick 4)</h3>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="color:#94a3b8;font-size:0.85rem;">Al arrancar, el servidor intenta descargar automáticamente los '
+        'PDFs oficiales desde 1988. Si esa descarga falla (sin conexión, timeout, OOM) la tabla queda con muy pocos '
+        'registros. Aquí puedes <b>repoblarla manualmente</b> sin esperar al arranque. La operación descarga el PDF de '
+        'nuevo, lo parsea e inserta lo que falte (deduplica por juego, fecha y sorteo).</p>',
+        unsafe_allow_html=True,
+    )
+
+    status = _api_call("GET", "/api/system/history-status", timeout=60)[0] or {}
+    juegos = status.get("juegos", {})
+
+    if status.get("importing"):
+        st.warning("⏳ Hay una importación automática en curso. Puedes lanzar una repoblación manual igualmente (se ejecutan en serie).")
+
+    if not juegos:
+        st.error("No se pudo consultar el estado del histórico. ¿El backend está corriendo?")
+    else:
+        for j, s in juegos.items():
+            completo = bool(s.get("completo"))
+            count = s.get("count", 0)
+            min_f = str(s.get("min_fecha") or "—")[:10]
+            max_f = str(s.get("max_fecha") or "—")[:10]
+            icon = "✅" if completo else "❌"
+            color = "#22c55e" if completo else "#ef4444"
+            st.markdown(
+                f'<div style="background:#1e293b;border:1px solid #334155;border-radius:0.75rem;'
+                f'padding:0.6rem 1rem;margin-bottom:0.5rem;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<b style="color:#f1f5f9;">{j}</b>'
+                f'<span style="color:{color};font-weight:700;">{icon} {"Completo" if completo else "Incompleto / vacío"}</span>'
+                f'</div>'
+                f'<div style="color:#94a3b8;font-size:0.8rem;">📊 <b style="color:#fbbf24;">{count}</b> registros · desde <b>{min_f}</b> · hasta <b>{max_f}</b></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    last_pop = status.get("last_populate") or {}
+    if last_pop and last_pop.get("ejecutado"):
+        juego_txt = last_pop.get("juego") or "ambos"
+        fuerza_txt = f" · forzada: {last_pop.get('fuerza')}"
+        st.markdown(
+            f'<p style="color:#64748b;font-size:0.8rem;">🕐 Última repoblación manual: '
+            f'<b>{str(last_pop.get("ejecutado", ""))[:19]}</b> · juego: <b>{juego_txt}</b>{fuerza_txt}</p>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
+    fuerza = st.checkbox(
+        "🔄 Forzar re-importación (descarga el PDF aunque el histórico esté completo)",
+        value=False,
+        key="gbd_hist_fuerza",
+        help="Útil si crees que faltan registros o el PDF oficial cambió. La inserción deduplica, no duplica registros.",
+    )
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        btn_p3 = st.button("📥 Repoblar Pick 3", use_container_width=True)
+    with c3:
+        btn_p4 = st.button("📥 Repoblar Pick 4", use_container_width=True)
+    with c2:
+        btn_ambos = st.button("📥 Repoblar Ambos", type="primary", use_container_width=True)
+
+    if btn_p3 or btn_p4 or btn_ambos:
+        juego = ("Pick 3" if btn_p3 else "Pick 4") if (btn_p3 or btn_p4) else None
+        with st.spinner("⬇️ Descargando PDF, parseando e insertando… (puede tardar 1-3 min)"):
+            reporte, err = _api_call(
+                "POST", "/api/admin/db/populate-historical",
+                json={"juego": juego, "fuerza": fuerza}, timeout=900,
+            )
+        if err:
+            st.error(f"La repoblación falló: {err}")
+        else:
+            st.success("✅ Repoblación completada.")
+            for j, r in (reporte or {}).get("juegos", {}).items():
+                if r.get("salteado"):
+                    st.markdown(f'<p style="color:#64748b;font-size:0.85rem;">&nbsp;&nbsp;• {j}: <b>salteado</b> (ya estaba completo). Usa “Forzar” para re-importar igualmente.</p>', unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        f'<p style="color:#94a3b8;font-size:0.85rem;">&nbsp;&nbsp;• {j}: <b style="color:#fbbf24;">{r.get("insertados", 0)}</b> '
+                        f'registros nuevos · total <b style="color:#fbbf24;">{r.get("count", 0)}</b> · desde <b>{str(r.get("min_fecha") or "—")[:10]}</b> '
+                        f'hasta <b>{str(r.get("max_fecha") or "—")[:10]}</b></p>',
+                        unsafe_allow_html=True,
+                    )
+
+    st.info("💡 Los registros quedan guardados en la base de datos (Neon), de modo que sobreviven a los reinicios "
+            "del servidor. Si la descarga automática al arrancar falló, este proceso es el respaldo.")
