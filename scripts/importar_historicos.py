@@ -52,11 +52,12 @@ def _get_session():
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "Accept": "application/pdf,*/*",
             "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.floridalottery.com/",
         })
     return _session
 
 
-def descargar_pdf(url: str, path: str, reintentos: int = 3) -> bool:
+def descargar_pdf(url: str, path: str, reintentos: int = 5) -> bool:
     """Descarga el PDF y lo guarda sobrescribiendo el anterior.
     - Reintenta hasta `reintentos` veces ante fallos de red (provisiones del
       arranque en frío o redes lentas).
@@ -65,7 +66,7 @@ def descargar_pdf(url: str, path: str, reintentos: int = 3) -> bool:
     for intento in range(1, reintentos + 1):
         print(f"  Descargando {url}... (intento {intento}/{reintentos})")
         try:
-            resp = _get_session().get(url, timeout=(10, 15), stream=True)
+            resp = _get_session().get(url, timeout=(10, 60), stream=True)
             resp.raise_for_status()
             with open(path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=65536):
@@ -75,11 +76,11 @@ def descargar_pdf(url: str, path: str, reintentos: int = 3) -> bool:
         except Exception as e:
             print(f"  [WARN] Intento {intento} falló: {type(e).__name__}: {e}")
             if intento < reintentos:
-                time.sleep(2 * intento)
+                time.sleep(3 * intento)
     if os.path.exists(path):
         print(f"  Sin conexión — usando archivo local existente: {path}")
         return True
-    print(f"  [ERROR] No se pudo descargar {url}")
+    print(f"  [ERROR] No se pudo descargar {url} tras {reintentos} intentos")
     return False
 
 
@@ -156,12 +157,12 @@ def importar_juego(juego: str) -> int:
     # Descargar PDF (sobrescribe si existe)
     pdf_path = PDF_PATHS[juego]
     if not descargar_pdf(PDF_URLS[juego], pdf_path):
-        return 0
+        raise RuntimeError(f"Falló la descarga del PDF para {juego} tras todos los reintentos")
 
     # Extraer resultados
     resultados = extraer_resultados_pdf(pdf_path, juego)
     if not resultados:
-        return 0
+        raise RuntimeError(f"El PDF de {juego} no contenía resultados válidos")
 
     # Insertar en BD y contar cuántos añadió de verdad
     db = SessionLocal()
@@ -176,7 +177,7 @@ def importar_juego(juego: str) -> int:
     except Exception as e:
         db.rollback()
         print(f"  ERROR en BD: {e}")
-        return 0
+        raise
     finally:
         db.close()
 

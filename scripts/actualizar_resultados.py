@@ -69,7 +69,11 @@ def importar_historial_si_falta(juego: str):
             return False
 
         print(f"  Historial incompleto para {juego} — importando histórico completo desde PDF")
-        importar_juego(juego)
+        try:
+            importar_juego(juego)
+        except Exception as e:
+            print(f"  ERROR importando {juego}: {e}")
+            raise
         return True
 
 
@@ -97,7 +101,7 @@ def repoblar_historial(juego: str = None, fuerza: bool = False) -> dict:
 
     - juego=None → ambos juegos. fuerza=False → solo si falta el histórico
       completo. fuerza=True → siempre descarga/parsa/reinserta (deduplica).
-    Devuelve un reporte con conteos y rangos de fechas por juego.
+    Devuelve un reporte con conteos, rangos de fechas y errores por juego.
     Usado por el admin (UI Gestor BD) cuando la carga automática falló."""
     juegos = ["Pick 3", "Pick 4"] if not juego else [juego]
     reporte = {"status": "ok", "juego": juego, "fuerza": fuerza, "juegos": {}}
@@ -107,8 +111,11 @@ def repoblar_historial(juego: str = None, fuerza: bool = False) -> dict:
             if not fuerza and antes and _stats_juego(j)["completo"]:
                 reporte["juegos"][j] = {"salteado": True, "insertados": 0, **_stats_juego(j)}
                 continue
-            nuevos = importar_juego(j)
-            reporte["juegos"][j] = {"salteado": False, "insertados": nuevos, **_stats_juego(j)}
+            try:
+                nuevos = importar_juego(j)
+                reporte["juegos"][j] = {"salteado": False, "insertados": nuevos, "error": None, **_stats_juego(j)}
+            except Exception as e:
+                reporte["juegos"][j] = {"salteado": False, "insertados": 0, "error": str(e), **_stats_juego(j)}
     return reporte
 
 

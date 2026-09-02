@@ -478,10 +478,17 @@ with tab_historicos:
         if err:
             st.error(f"La repoblación falló: {err}")
         else:
-            st.success("✅ Repoblación completada.")
-            for j, r in (reporte or {}).get("juegos", {}).items():
+            reporte = reporte or {}
+            overall_ok = all(not r.get("error") for r in reporte.get("juegos", {}).values())
+            if overall_ok:
+                st.success("✅ Repoblación completada.")
+            else:
+                st.warning("⚠️ Repoblación completada con errores en algún juego.")
+            for j, r in reporte.get("juegos", {}).items():
                 if r.get("salteado"):
                     st.markdown(f'<p style="color:#64748b;font-size:0.85rem;">&nbsp;&nbsp;• {j}: <b>salteado</b> (ya estaba completo). Usa “Forzar” para re-importar igualmente.</p>', unsafe_allow_html=True)
+                elif r.get("error"):
+                    st.markdown(f'<p style="color:#ef4444;font-size:0.85rem;">&nbsp;&nbsp;• {j}: <b>ERROR</b> — {r["error"]}</p>', unsafe_allow_html=True)
                 else:
                     st.markdown(
                         f'<p style="color:#94a3b8;font-size:0.85rem;">&nbsp;&nbsp;• {j}: <b style="color:#fbbf24;">{r.get("insertados", 0)}</b> '
