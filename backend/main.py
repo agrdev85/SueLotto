@@ -233,7 +233,9 @@ def on_startup():
 def health(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1")).fetchone()
-        return {"status": "ok", "database": "connected"}
+        from backend.database import IS_SQLITE, get_engine_info
+        info = get_engine_info()
+        return {"status": "ok", "database": "connected", "driver": info["driver"], "url": info["url"]}
     except Exception as e:
         logger.error("Health check failed: %s", e)
         return JSONResponse(status_code=503, content={"status": "error", "detail": str(e)})

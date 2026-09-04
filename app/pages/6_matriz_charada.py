@@ -4,7 +4,6 @@ import os, sys
 from dotenv import load_dotenv
 
 load_dotenv()
-API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Matriz & Charada", page_icon="🔢", layout="wide")
 
@@ -92,203 +91,119 @@ tabs = st.tabs(["📊 Matriz Visual", "🔍 Alrededor", "📈 Comparar & Reducir
 
 # ─── Tab 0: Matriz Visual ────────────────────────────────────────
 with tabs[0]:
-    st.markdown(f'<div class="card"><h3>📊 Matriz {tipo_matriz.title()} {"(10x10)" if tipo_matriz == "nueva" else "(11x11)"}</h3>', unsafe_allow_html=True)
-
-    calientes_data = api_get("/api/estadisticas/calientes", {"juego": "Pick 3", "limite": 10, "sorteo": "E"})
-    posibles_data = api_get("/api/estadisticas/posibles-salir", {"juego": "Pick 3", "sorteo": "E"})
-
-    set_calientes = set(calientes_data.get("numeros", [])) if calientes_data else set()
-    set_posibles = set(posibles_data.get("numeros", [])) if posibles_data else set()
-    set_ambos = set_calientes & set_posibles
-
-    st.session_state.setdefault("matriz_sel", None)
-    st.session_state.setdefault("matriz_tipo", tipo_matriz)
-    if st.session_state.matriz_tipo != tipo_matriz:
-        st.session_state.matriz_tipo = tipo_matriz
-        st.session_state.matriz_sel = None
 
     matriz_actual = MATRIZ_NUEVA if tipo_matriz == "nueva" else MATRIZ_VIEJA
-    cols_labels = [chr(ord('a') + i) for i in range(len(matriz_actual[0]))]
+    cols_labels = [chr(ord("a") + i) for i in range(len(matriz_actual[0]))]
 
-    # Build self-contained matrix component using st.components.v1.html
-    # so clicks update the Alrededor card inline without page reload
-    import json as _json
+    freq_data = api_get("/api/estadisticas/frecuencias", {"juego": "Pick 3", "sorteo": "E", "dias": 90}) or []
+    calientes_data = api_get("/api/estadisticas/calientes", {"juego": "Pick 3", "sorteo": "E", "limite": 15, "dias": 30}) or {}
+    posibles_data = api_get("/api/estadisticas/posibles-salir", {"juego": "Pick 3", "sorteo": "E"}) or {}
 
-    _sel = st.session_state.get("matriz_sel")
+    set_calientes = set(calientes_data.get("numeros", []))
+    set_posibles = set(posibles_data.get("numeros", []))
+    set_ambos = set_calientes & set_posibles
 
-    _rows_html = ""
-    _rows_html += '<tr><td style="width:1.2rem;"></td>'
-    for c_label in cols_labels:
-        _rows_html += f'<td style="text-align:center;color:#64748b;font-size:0.7rem;padding:2px 1px;">{c_label.upper()}</td>'
-    _rows_html += '</tr>'
+    freq_map = {f.get("numero"): f.get("frecuencia", 0) for f in freq_data}
+    if len(freq_map) >= 20 and set_calientes:
+        sorted_nums = sorted(freq_map, key=lambda n: freq_map[n])
+        set_frios = set(sorted_nums[:15])
+    else:
+        set_frios = set()
 
-    for i, row in enumerate(matriz_actual):
-        _rows_html += f'<tr><td style="text-align:center;color:#64748b;font-size:0.65rem;">{i+1}</td>'
-        for j, val in enumerate(row):
-            if val == 0:
-                _rows_html += '<td style="background:#0f172a;color:#475569;padding:6px 2px;text-align:center;border-radius:4px;font-size:0.85rem;"></td>'
-            else:
-                _cls = "mc-cell"
-                if val == _sel:
-                    _cls += " mc-sel"
-                if val in set_ambos:
-                    _cls += " mc-ambos"
-                elif val in set_calientes:
-                    _cls += " mc-caliente"
-                elif val in set_posibles:
-                    _cls += " mc-posible"
-                _rows_html += f'<td class="{_cls}" data-r="{i}" data-c="{j}" data-val="{val}">{val}</td>'
-        _rows_html += '</tr>'
+    CAT_EMOJI = {
+        "ambos": "🟠",
+        "caliente": "🔴",
+        "posible": "🔵",
+        "frio": "🟣",
+        "normal": "⚪",
+    }
 
-    _matriz_json = _json.dumps(matriz_actual)
-    _calientes_json = _json.dumps(list(set_calientes))
-    _posibles_json = _json.dumps(list(set_posibles))
-    _api_url_json = _json.dumps(API_URL)
+    def _cat(_v):
+        if _v in set_ambos:
+            return "ambos"
+        if _v in set_calientes:
+            return "caliente"
+        if _v in set_posibles:
+            return "posible"
+        if _v in set_frios:
+            return "frio"
+        return "normal"
 
-    matrix_html = f"""<div style="overflow-x:auto;">
-<style>
-  #mc-app {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; }}
-  #mc-app table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
-  #mc-app td {{ width: 9%; aspect-ratio: 1 / 1; text-align: center; border-radius: 6px; font-weight: bold; font-size: clamp(0.65rem, 2vw, 0.95rem); cursor: default; vertical-align: middle; }}
-  #mc-app tr td:first-child {{ width: 1.5rem; aspect-ratio: auto; font-size: 0.6rem; color: #64748b; background: transparent !important; }}
-  .mc-cell {{ background: #1e293b; color: white; cursor: pointer !important; transition: opacity 0.15s, transform 0.1s; }}
-  .mc-cell:hover {{ opacity: 0.8; transform: scale(1.06); }}
-  .mc-sel {{ background: linear-gradient(135deg,#3b82f6,#8b5cf6) !important; box-shadow: 0 0 8px rgba(59,130,246,0.5); }}
-  .mc-caliente {{ background: #ef4444 !important; }}
-  .mc-posible {{ background: #3b82f6 !important; }}
-  .mc-ambos {{ background: #fbbf24 !important; color: #0f172a !important; }}
-  .mc-empty {{ background: #0f172a; color: #475569; }}
-  #mc-card {{ background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1rem; margin-top: 1rem; display: none; }}
-  #mc-card .mc-num {{ display: inline-flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg,#3b82f6,#8b5cf6); color: white; font-weight: bold;
-    font-size: clamp(0.8rem, 1.5vw, 0.95rem); width: 2.2rem; height: 2.2rem; border-radius: 0.4rem; margin: 0.15rem; }}
-  #mc-card .mc-row {{ display: flex; gap: 0.3rem; margin-bottom: 0.3rem; flex-wrap: wrap; }}
-  .mc-spinner {{ display: inline-block; width: 1rem; height: 1rem; border: 2px solid #334155; border-top-color: #fbbf24; border-radius: 50%; animation: mc-spin 0.6s linear infinite; }}
-  @keyframes mc-spin {{ to {{ transform: rotate(360deg); }} }}
-</style>
-<div id="mc-app">
-<table>{_rows_html}</table>
-<div id="mc-card">
-  <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
-    <span id="mc-card-num" style="font-size:2rem;font-weight:bold;color:#fbbf24;"></span>
-    <span id="mc-card-label" style="color:#94a3b8;font-size:0.95rem;"></span>
-  </div>
-  <div id="mc-card-body"></div>
-</div>
-<div id="mc-error" style="color:#ef4444;margin-top:0.5rem;display:none;"></div>
-</div>
-<script>
-(function() {{
-  const MATRIZ = {_matriz_json};
-  const CALIENTES = new Set({_calientes_json});
-  const POSIBLES = new Set({_posibles_json});
-  const API = {_api_url_json};
-  const selVal = {_json.dumps(_sel)};
+    st.markdown(f'<div class="card"><h3>📊 Matriz {tipo_matriz.title()} {"(10x10)" if tipo_matriz == "nueva" else "(11x11)"}</h3>', unsafe_allow_html=True)
 
-  function highlightCell(el) {{
-    document.querySelectorAll('.mc-sel').forEach(c => c.classList.remove('mc-sel'));
-    if (el) el.classList.add('mc-sel');
-  }}
-
-  function showError(msg) {{
-    const err = document.getElementById('mc-error');
-    err.textContent = msg;
-    err.style.display = 'block';
-  }}
-
-  function showCard(num, total, numeros) {{
-    const card = document.getElementById('mc-card');
-    document.getElementById('mc-card-num').textContent = num;
-    document.getElementById('mc-card-label').innerHTML = 'Números alrededor · <strong style="color:#f1f5f9;">' + total + '</strong>';
-    const body = document.getElementById('mc-card-body');
-    body.innerHTML = '';
-    for (let i = 0; i < numeros.length; i += 10) {{
-      const row = document.createElement('div');
-      row.className = 'mc-row';
-      const chunk = numeros.slice(i, i + 10);
-      chunk.forEach(n => {{
-        const span = document.createElement('span');
-        span.className = 'mc-num';
-        span.textContent = n;
-        row.appendChild(span);
-      }});
-      body.appendChild(row);
-    }}
-    card.style.display = 'block';
-    document.getElementById('mc-error').style.display = 'none';
-  }}
-
-  function clickCell(el) {{
-    const r = parseInt(el.dataset.r);
-    const c = parseInt(el.dataset.c);
-    const val = parseInt(el.dataset.val);
-    if (!val) return;
-    highlightCell(el);
-    const card = document.getElementById('mc-card');
-    card.style.display = 'none';
-    document.getElementById('mc-error').style.display = 'none';
-    const body = document.getElementById('mc-card-body');
-    body.innerHTML = '<div class="mc-spinner"></div> <span style="color:#94a3b8;margin-left:0.5rem;">Cargando...</span>';
-    card.style.display = 'block';
-    try {{
-      Streamlit.setComponentValue(JSON.stringify({{selected: val}}));
-    }} catch(e) {{}}
-    fetch(API + '/api/matriz/alrededor', {{
-      method: 'POST',
-      headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify({{numero: val, tipo_matriz: '{tipo_matriz}'}})
-    }})
-    .then(r => {{
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }})
-    .then(data => showCard(val, data.total, data.numeros))
-    .catch(err => {{
-      body.innerHTML = '';
-      showError('Error al cargar: ' + err.message);
-    }});
-  }}
-
-  document.querySelectorAll('.mc-cell').forEach(el => {{
-    el.addEventListener('click', function() {{ clickCell(this); }});
-  }});
-
-  if (selVal) {{
-    const el = document.querySelector('.mc-cell[data-val="' + selVal + '"]');
-    if (el) {{
-      highlightCell(el);
-      fetch(API + '/api/matriz/alrededor', {{
-        method: 'POST',
-        headers: {{'Content-Type': 'application/json'}},
-        body: JSON.stringify({{numero: selVal, tipo_matriz: '{tipo_matriz}'}})
-      }})
-      .then(r => r.json())
-      .then(data => showCard(selVal, data.total, data.numeros))
-      .catch(err => showError('Error: ' + err.message));
-    }}
-  }}
-}})();
-</script>
-</div>"""
-
-    comp_val = st.components.v1.html(matrix_html, height=620, scrolling=True)
-    if comp_val:
-        try:
-            parsed = _json.loads(comp_val)
-            if "selected" in parsed:
-                st.session_state.matriz_sel = parsed["selected"]
-        except (ValueError, TypeError):
-            pass
+    st.markdown('<p style="color:#94a3b8;font-size:0.85rem;margin-bottom:0.4rem;">💡 Haz clic en una celda de la matriz: se marca como activo y abajo se muestran sus números alrededor.</p>', unsafe_allow_html=True)
 
     st.markdown("""
-    <div style="display:flex;gap:1.5rem;margin-top:1rem;flex-wrap:wrap;">
-        <div><span style="display:inline-block;width:1rem;height:1rem;background:linear-gradient(135deg,#3b82f6,#8b5cf6);border-radius:0.25rem;margin-right:0.3rem;"></span> Seleccionado</div>
-        <div><span style="display:inline-block;width:1rem;height:1rem;background:#ef4444;border-radius:0.25rem;margin-right:0.3rem;"></span> Caliente</div>
-        <div><span style="display:inline-block;width:1rem;height:1rem;background:#3b82f6;border-radius:0.25rem;margin-right:0.3rem;"></span> Posible</div>
-        <div><span style="display:inline-block;width:1rem;height:1rem;background:#fbbf24;border-radius:0.25rem;margin-right:0.3rem;"></span> Caliente + Posible</div>
+    <style>
+      div[data-testid="stVerticalBlockBorderWrapper"] div.stButton > button { min-height: 36px; line-height: 1; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    @st.fragment
+    def _matriz_fragment():
+        _sel = st.session_state.get("matriz_sel")
+
+        # Header de columnas
+        _hcols = st.columns([0.4] + [1.0] * len(cols_labels))
+        with _hcols[0]:
+            st.markdown('<div style="height:30px;"></div>', unsafe_allow_html=True)
+        for _ci, _cl in enumerate(cols_labels):
+            with _hcols[_ci + 1]:
+                st.markdown(f'<div style="text-align:center;color:#fbbf24;font-weight:bold;font-size:0.75rem;line-height:30px;">{_cl.upper()}</div>', unsafe_allow_html=True)
+
+        # Cada fila: etiqueta + botones nativos por celda
+        for _ri, row in enumerate(matriz_actual):
+            _cols = st.columns([0.4] + [1.0] * len(cols_labels))
+            with _cols[0]:
+                st.markdown(f'<div style="text-align:center;color:#fbbf24;font-weight:bold;font-size:0.75rem;line-height:36px;">{_ri+1}</div>', unsafe_allow_html=True)
+            for _ci, _val in enumerate(row):
+                with _cols[_ci + 1]:
+                    if _val == 0:
+                        st.markdown('<div style="height:36px;"></div>', unsafe_allow_html=True)
+                    else:
+                        _activo = (st.session_state.get("matriz_sel") == _val)
+                        _emo = CAT_EMOJI[_cat(_val)]
+                        if st.button(
+                            f"{_emo} {_val:02d}",
+                            key=f"mc_{tipo_matriz}_{_val}",
+                            use_container_width=True,
+                            type="primary" if _activo else "secondary",
+                        ):
+                            st.session_state.matriz_sel = _val
+                            st.rerun(scope="fragment")
+
+        st.markdown('<div style="height:0.25rem;"></div>', unsafe_allow_html=True)
+
+        _sel = st.session_state.get("matriz_sel")
+        if _sel is not None:
+            _alr = api_post("/api/matriz/alrededor", {"numero": int(_sel), "tipo_matriz": tipo_matriz})
+            if _alr:
+                st.markdown(
+                    f'<div style="background:#1e293b;border:1px solid #334155;border-radius:0.75rem;padding:0.8rem 1rem;margin-top:0.5rem;margin-bottom:0.5rem;">'
+                    f'<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">'
+                    f'<span style="font-size:1.8rem;font-weight:bold;color:#fbbf24;">{_sel}</span>'
+                    f'<span style="color:#94a3b8;font-size:0.9rem;">Número activo · {CAT_EMOJI[_cat(_sel)]} {_cat(_sel).title()} · Alrededor <strong style="color:#f1f5f9;">{_alr["total"]}</strong></span>'
+                    f'</div></div>',
+                    unsafe_allow_html=True,
+                )
+                nums_html = "".join(
+                    f'<span class="result-number">{x}</span>' for x in _alr["numeros"]
+                )
+                st.markdown(f'<div>{nums_html}</div>', unsafe_allow_html=True)
+
+    _matriz_fragment()
+
+    st.markdown("""
+    <div style="display:flex;gap:1.2rem;margin-top:0.5rem;flex-wrap:wrap;">
+        <div><span>🟠</span> Caliente + Posible</div>
+        <div><span>🔴</span> Caliente</div>
+        <div><span>🔵</span> Posible</div>
+        <div><span>🟣</span> Frío</div>
+        <div><span>⚪</span> Normal</div>
+        <div><span style="display:inline-block;width:0.95rem;height:0.95rem;background:linear-gradient(135deg,#7c3aed,#4f46e5);border-radius:0.25rem;margin-right:0.3rem;"></span> Activo</div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ─── Tab 1: Alrededor ────────────────────────────────────────────
 with tabs[1]:

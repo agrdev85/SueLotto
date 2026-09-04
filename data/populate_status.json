@@ -1,24 +1,24 @@
 {
   "status": "ok",
   "juego": null,
-  "fuerza": true,
+  "fuerza": false,
   "juegos": {
     "Pick 3": {
-      "salteado": false,
+      "salteado": true,
       "insertados": 0,
-      "count": 20680,
+      "count": 20686,
       "min_fecha": "1988-04-29",
-      "max_fecha": "2026-09-01",
+      "max_fecha": "2026-09-04",
       "completo": true
     },
     "Pick 4": {
-      "salteado": false,
+      "salteado": true,
       "insertados": 0,
-      "count": 19522,
+      "count": 19528,
       "min_fecha": "1991-07-04",
-      "max_fecha": "2026-09-01",
+      "max_fecha": "2026-09-04",
       "completo": true
     }
   },
-  "ejecutado": "2026-09-01T19:22:45.884845"
+  "ejecutado": "2026-09-04T16:12:21.279318"
 }

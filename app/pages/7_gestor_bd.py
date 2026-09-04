@@ -27,6 +27,16 @@ if user_tier != "admin":
 
 render_global_header()
 
+_health = api_get("/health") or {}
+_db_driver = _health.get("driver", "unknown")
+if _db_driver == "sqlite":
+    st.warning(
+        "⚠️ **Tu base de datos es SQLite (local)** — los datos se pierden al reiniciar el servidor. "
+        "Si estás en Render, configura la variable de entorno `DATABASE_URL` con tu URL de Neon/Postgres "
+        "para que los datos persistan. Ejemplo: `postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/suenalotto`",
+        icon="⚠️",
+    )
+
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">🗄️ Gestor de Base de Datos</h1>', unsafe_allow_html=True)
 
 TABLAS = {
