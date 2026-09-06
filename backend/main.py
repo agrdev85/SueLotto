@@ -1173,7 +1173,7 @@ async def api_payments_webhook(request: Request):
     if is_prod and not signature:
         logger.warning("Qvapay webhook missing signature in production")
         raise HTTPException(401, "Missing signature")
-    if signature and not verify_webhook(data, signature):
+    if signature and not verify_webhook(body, signature):
         logger.warning("Qvapay webhook invalid signature")
         raise HTTPException(401, "Invalid signature")
 

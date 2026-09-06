@@ -13,7 +13,7 @@ load_dotenv()
 
 logger = logging.getLogger("suenalotto.qvapay")
 
-QVAPAY_API_URL = os.getenv("QVAPAY_API_URL", "https://qvapay.com/api/v1")
+QVAPAY_API_URL = os.getenv("QVAPAY_API_URL", "https://api.qvapay.com")
 QVAPAY_APP_ID = os.getenv("QVAPAY_APP_ID", "")
 QVAPAY_SECRET = os.getenv("QVAPAY_SECRET", "")
 QVAPAY_WEBHOOK_SECRET = os.getenv("QVAPAY_WEBHOOK_SECRET", "")
@@ -86,18 +86,9 @@ def is_configured() -> bool:
     return bool(QVAPAY_APP_ID and QVAPAY_SECRET)
 
 
-def _sign(data: dict) -> str:
-    msg = json.dumps(data, separators=(",", ":"))
+def _sign_webhook(raw_body: bytes, secret: str) -> str:
     return hmac.new(
-        QVAPAY_SECRET.encode(), msg.encode(), hashlib.sha256
-    ).hexdigest()
-
-
-def _sign_webhook(data: dict) -> str:
-    msg = json.dumps(data, separators=(",", ":"))
-    secret = QVAPAY_WEBHOOK_SECRET or QVAPAY_SECRET
-    return hmac.new(
-        secret.encode(), msg.encode(), hashlib.sha256
+        secret.encode(), raw_body, hashlib.sha256
     ).hexdigest()
 
 
@@ -120,32 +111,35 @@ def create_payment_url(
         promo_info = {"active": is_promo, "remaining": remaining}
 
     payload = {
-        "app_id": QVAPAY_APP_ID,
         "amount": amount,
-        "currency": plan["currency"],
         "description": f"{plan['name']} - {username}",
-        "external_id": f"sl_{user_id}_{plan_id}_{int(datetime.utcnow().timestamp())}",
-        "callback_url": f"{APP_URL.rstrip('/')}/api/payments/webhook",
-        "success_url": f"{APP_URL}/10_payment_success?plan={plan_id}",
-        "cancel_url": f"{APP_URL}/11_payment_cancel",
-        "customer_email": email,
-        "customer_username": username,
+        "remote_id": f"sl_{user_id}_{plan_id}_{int(datetime.utcnow().timestamp())}",
+        "webhook": f"{APP_URL.rstrip('/')}/api/payments/webhook",
     }
-    payload["signature"] = _sign(payload)
+
+    headers = {
+        "Content-Type": "application/json",
+        "app-id": QVAPAY_APP_ID,
+        "app-secret": QVAPAY_SECRET,
+    }
 
     try:
         with httpx.Client(timeout=15) as client:
-            resp = client.post(f"{QVAPAY_API_URL}/payment/create", json=payload)
+            resp = client.post(
+                f"{QVAPAY_API_URL}/v2/create_invoice",
+                json=payload,
+                headers=headers,
+            )
             resp.raise_for_status()
             data = resp.json()
             logger.info(
                 "Qvapay payment created for %s (%s): %s",
-                username, plan_id, data.get("payment_url", ""),
+                username, plan_id, data.get("url", ""),
             )
             return {
-                "payment_url": data.get("payment_url"),
-                "payment_id": data.get("payment_id"),
-                "external_id": payload["external_id"],
+                "payment_url": data.get("url"),
+                "payment_id": data.get("transaction_uuid"),
+                "external_id": payload["remote_id"],
                 "amount": amount,
                 "currency": plan["currency"],
                 "promo": promo_info,
@@ -155,18 +149,25 @@ def create_payment_url(
         return None
 
 
-def verify_webhook(data: dict, signature: str) -> bool:
-    expected = _sign_webhook(data)
-    return hmac.compare_digest(expected, signature)
+def verify_webhook(raw_body: bytes, signature_header: str) -> bool:
+    signature = (signature_header or "").strip()
+    if signature.startswith("sha256="):
+        signature = signature[len("sha256="):]
+    if not signature:
+        logger.warning("Qvapay webhook missing signature value")
+        return False
+    secret = QVAPAY_WEBHOOK_SECRET or QVAPAY_SECRET
+    expected = _sign_webhook(raw_body, secret)
+    return hmac.compare_digest(expected, signature.lower())
 
 
 def process_webhook(data: dict) -> Optional[dict]:
-    payment_id = data.get("payment_id", "")
-    external_id = data.get("external_id", "")
-    status = data.get("status", "")
+    payment_id = data.get("payment_id") or data.get("uuid") or data.get("transaction_uuid") or ""
+    external_id = data.get("external_id") or data.get("remote_id") or ""
+    status = (data.get("status") or "").lower()
     logger.info("Qvapay webhook: payment=%s status=%s external=%s", payment_id, status, external_id)
 
-    if status not in ("completed", "confirmed"):
+    if status not in ("completed", "confirmed", "paid"):
         return {"action": "ignored", "status": status}
 
     parts = external_id.split("_")
@@ -174,7 +175,11 @@ def process_webhook(data: dict) -> Optional[dict]:
         logger.warning("Invalid external_id format: %s", external_id)
         return {"action": "error", "reason": "invalid_external_id"}
 
-    user_id = int(parts[1])
+    try:
+        user_id = int(parts[1])
+    except (TypeError, ValueError):
+        logger.warning("Invalid user_id in external_id: %s", external_id)
+        return {"action": "error", "reason": "invalid_external_id"}
     plan_id = parts[2]
 
     return {
