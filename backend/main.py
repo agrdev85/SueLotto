@@ -791,12 +791,29 @@ def api_register(data: dict = Body(...), db: Session = Depends(get_db)):
         username=username,
         email=email,
         password_hash=hash_password(password),
-        tier=tier,
-        tier_expires=date.today() + timedelta(days=30) if tier == "pro" else None,
+        tier="free",
+        tier_expires=None,
         email_verified=False,
         email_verification_token=email_token,
     )
     db.add(user)
+    db.flush()
+
+    payment_response = None
+    if tier in ("pro", "lifetime"):
+        payment_response = create_payment_url(
+            plan_id=tier,
+            username=user.username,
+            email=user.email,
+            user_id=user.id,
+        )
+        if not payment_response:
+            db.rollback()
+            raise HTTPException(
+                503,
+                "No se pudo iniciar el pago. Intenta de nuevo o elige el plan Gratis.",
+            )
+
     db.commit()
     db.refresh(user)
 
@@ -805,7 +822,7 @@ def api_register(data: dict = Body(...), db: Session = Depends(get_db)):
 
     token = create_access_token({"sub": user.username})
     logger.info("New user registered: %s (%s, %s)", username, email, tier)
-    return {
+    resp = {
         "access_token": token,
         "token_type": "bearer",
         "user": {
@@ -816,6 +833,11 @@ def api_register(data: dict = Body(...), db: Session = Depends(get_db)):
             "email_verified": user.email_verified,
         },
     }
+    if payment_response:
+        resp["payment_required"] = True
+        resp["payment_url"] = payment_response["payment_url"]
+        resp["payment"] = payment_response
+    return resp
 
 
 @app.post("/api/auth/login")

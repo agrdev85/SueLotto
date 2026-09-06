@@ -239,7 +239,19 @@ if not st.session_state.get("user"):
                         st.session_state["token"] = res["access_token"]
                         st.session_state["user"] = res["user"]
                         st.session_state["login_time"] = time.time()
-                        st.rerun()
+                        pay_url = res.get("payment_url")
+                        if pay_url:
+                            st.success("Cuenta creada. Redirigiendo al pago...")
+                            st.markdown(
+                                f'<meta http-equiv="refresh" content="0;url={pay_url}">',
+                                unsafe_allow_html=True,
+                            )
+                            st.markdown(
+                                f'<a href="{pay_url}" target="_blank">Haz clic aquí si no redirige automáticamente</a>',
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            st.rerun()
                     else:
                         detail = st.session_state.get("last_api_error")
                         st.error(f"Error al registrar: {detail}" if detail else "Error al registrar. Revisa los datos e intenta de nuevo.")
