@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, Text, Float, DateTime, UniqueConstraint, Boolean
+from sqlalchemy import Column, Integer, String, Date, Text, Float, DateTime, UniqueConstraint, Boolean, LargeBinary
 from sqlalchemy.sql import func
 from backend.database import Base
 
@@ -115,3 +115,22 @@ class OtherGameResult(Base):
     __table_args__ = (
         UniqueConstraint("game_name", "fecha", name="uq_other_game"),
     )
+
+
+class ManualPayment(Base):
+    __tablename__ = "manual_payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    plan_id = Column(String(20), nullable=False)
+    amount = Column(Float, nullable=False)
+    method = Column(String(50), nullable=False, default="transfermovil")
+    reference = Column(String(120), nullable=True)
+    notes = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    receipt_filename = Column(String(200), nullable=True)
+    receipt_extension = Column(String(10), nullable=True)
+    receipt_data = Column(LargeBinary, nullable=True)
+    admin_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    reviewed_at = Column(DateTime, nullable=True)

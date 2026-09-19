@@ -18,6 +18,7 @@ QVAPAY_APP_ID = os.getenv("QVAPAY_APP_ID", "")
 QVAPAY_SECRET = os.getenv("QVAPAY_SECRET", "")
 QVAPAY_WEBHOOK_SECRET = os.getenv("QVAPAY_WEBHOOK_SECRET", "")
 APP_URL = os.getenv("APP_URL", "http://localhost:8501")
+API_PUBLIC_URL = os.getenv("API_PUBLIC_URL", os.getenv("FASTAPI_URL", "http://localhost:8000"))
 
 PROMO_LIFETIME_PRICE = float(os.getenv("PROMO_LIFETIME_PRICE", "50.00"))
 PROMO_MAX_USERS = int(os.getenv("PROMO_MAX_USERS", "100"))
@@ -86,6 +87,21 @@ def is_configured() -> bool:
     return bool(QVAPAY_APP_ID and QVAPAY_SECRET)
 
 
+def mock_enabled() -> bool:
+    """True cuando Qvapay no está configurado y el entorno permite pagos simulados.
+
+    Se activa explícitamente con QVAPAY_MOCK_MODE=1 o automáticamente en entornos
+    de desarrollo (ENVIRONMENT vacío/local/dev/test). Nunca se activa en producción.
+    """
+    if QVAPAY_APP_ID and QVAPAY_SECRET:
+        return False
+    mode = os.getenv("QVAPAY_MOCK_MODE", "").strip().lower()
+    if mode in ("1", "true", "yes", "on"):
+        return True
+    env_name = os.getenv("ENVIRONMENT", "").strip().lower()
+    return env_name in ("", "local", "development", "dev", "test")
+
+
 def _sign_webhook(raw_body: bytes, secret: str) -> str:
     return hmac.new(
         secret.encode(), raw_body, hashlib.sha256
@@ -96,6 +112,29 @@ def create_payment_url(
     plan_id: str, username: str, email: str, user_id: int
 ) -> Optional[dict]:
     if not is_configured():
+        if mock_enabled():
+            logger.warning("Qvapay not configured; using MOCK payment for %s", username)
+            plan = PLANS.get(plan_id)
+            if not plan:
+                logger.error("Invalid plan id: %s", plan_id)
+                return None
+            amount = plan["amount"]
+            promo_info = None
+            if plan_id == "lifetime":
+                amount, is_promo, remaining = get_lifetime_price()
+                promo_info = {"active": is_promo, "remaining": remaining}
+            external_id = f"sl_{user_id}_{plan_id}_{int(datetime.utcnow().timestamp())}"
+            return {
+                "payment_url": (
+                    f"{API_PUBLIC_URL.rstrip('/')}/api/payments/mock/confirm?ext={external_id}"
+                ),
+                "payment_id": f"mock_{external_id}",
+                "external_id": external_id,
+                "amount": amount,
+                "currency": plan["currency"],
+                "promo": promo_info,
+                "mock": True,
+            }
         logger.warning("Qvapay not configured; skipping payment creation")
         return None
 

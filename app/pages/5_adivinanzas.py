@@ -8,7 +8,7 @@ load_dotenv()
 st.set_page_config(page_title="Adivinanzas - SueñaLotto", page_icon="🧠", layout="wide")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from app.shared import render_global_header, api_get, api_post, init_session_state, render_pro_card
+from app.shared import render_global_header, api_get, api_post, init_session_state, render_pro_card, render_help_button
 
 init_session_state()
 
@@ -67,7 +67,24 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">🧠 Adivinanzas con IA</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color:var(--text-secondary);text-align:center;">Interpreta la adivinanza del día con ayuda de inteligencia artificial</p>', unsafe_allow_html=True)
+render_help_button(
+    help_key="adiv",
+    subtitle_html='<span style="color:var(--text-secondary);">Interpreta la adivinanza del día con ayuda de inteligencia artificial</span>',
+    modal_title="🧠 ¿Cómo funcionan las Adivinanzas con IA?",
+    body_html="""
+        <b>¿Qué hace esta página?</b><br>
+        Convierte la adivinanza del día en combinaciones de números sugeridas,
+        cruzando la inteligencia artificial con los datos estadísticos de SueñaLotto.<br><br>
+        <b>¿Cómo se usa?</b>
+        <ol style="margin:0;padding-left:1.2rem;">
+            <li>Lee la <b>adivinanza del día</b> (una pista cifrada típica de la charada).</li>
+            <li>Pulsa <b>Interpretar con IA</b> para generar números con sus razones.</li>
+            <li>Revisa las razones de cada número y decide si jugarlo.</li>
+            <li>Puedes guardar la combinación en <b>Mis Jugadas</b>.</li>
+        </ol>
+        <br><span style="color:#64748b;font-size:0.85rem;">La IA ayuda a interpretar, pero no garantiza resultados. Juega con responsabilidad.</span>
+    """,
+)
 
 adivinanza_hoy = api_get("/api/adivinanza/hoy")
 

@@ -70,9 +70,15 @@ with c1:
         <p>📲 Transferencia a tu monedero (Zelle / USD / CUP)</p>
         <p>🎟️ Acceso a <strong>códigos promocionales</strong> exclusivos</p>
     </div>
-    <p>Escríbenos al bot de Telegram eligiendo el motivo <strong>"Usuarios en Cuba — métodos de pago"</strong> e
-    indica el método de pago al que tienes acceso. Te indicaremos la vía más cómoda para activar tu plan Pro o De por Vida.</p>
+    <p>📖 ¿Quieres saber <strong>cómo pagar paso a paso</strong>? Consulta la guía completa
+    (Qvapay automático y Transfermóvil/MLC manual) en la página <strong>Métodos de Pago</strong> 👇</p>
 </div>
+    """, unsafe_allow_html=True)
+    if st.button("💳 Ir a Métodos de Pago", type="primary", use_container_width=True, key="go_pay_methods"):
+        st.switch_page("pages/12_metodos_pago.py")
+    st.markdown("""
+<p style="margin-top:0.75rem;">Escríbenos al bot de Telegram eligiendo el motivo <strong>"Usuarios en Cuba — métodos de pago"</strong> e
+indica el método de pago al que tienes acceso. Te indicaremos la vía más cómoda para activar tu plan Pro o De por Vida.</p>
 """, unsafe_allow_html=True)
 
 # ─── Códigos promocionales ──────────────────────────────────────────────────

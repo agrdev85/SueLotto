@@ -127,6 +127,30 @@ def api_post(path, json_data=None, token=None, timeout=20):
         return None
 
 
+def api_upload(path, files=None, data=None, timeout=30):
+    headers = _make_headers()
+    try:
+        r = httpx.post(
+            f"{API_URL}{path}", files=files or {}, data=data or {},
+            headers=headers, timeout=timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+    except httpx.HTTPStatusError as e:
+        detail = _extract_error(e)
+        st.session_state["last_api_error"] = detail
+        if e.response.status_code == 401:
+            st.toast("🔒 Sesión expirada. Vuelve a iniciar sesión.", icon="⚠️")
+            for k in ["token", "user", "login_time", "last_refresh"]:
+                st.session_state.pop(k, None)
+        return None
+    except httpx.ConnectError:
+        st.toast("🔌 Servidor no disponible. Intenta de nuevo.", icon="⚠️")
+        return None
+    except:
+        return None
+
+
 def _extract_error(e):
     try:
         return e.response.json().get("detail", str(e))
@@ -335,6 +359,47 @@ def render_global_header():
             st.rerun()
 
     render_scroll_to_top_button()
+
+
+@st.dialog("SueñaLotto — Ayuda", width="small")
+def _help_dialog(title, body):
+    st.markdown(f'<h3 style="margin-top:0;">{title}</h3>', unsafe_allow_html=True)
+    st.markdown(f'<div style="line-height:1.6;color:#cbd5e1;">{body}</div>', unsafe_allow_html=True)
+    st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
+    if st.button("Entendido 🎯", type="primary", key="_help_dlg_ok"):
+        st.rerun()
+
+
+def render_help_button(help_key, modal_title, body_html, subtitle_html="", prefix="help"):
+    """Muestra un subtítulo (opcional) con un pequeño botón '?' a su lado que abre un modal de ayuda."""
+    cont_key = f"{prefix}_{help_key}_row"
+    btn_key = f"{prefix}_{help_key}_btn"
+    st.markdown(
+        f"""
+<style>
+    .st-key-{cont_key} [data-testid="stVerticalBlock"] {{
+        display: flex; flex-direction: row; align-items: center; justify-content: center;
+        gap: 0.5rem; flex-wrap: wrap;
+    }}
+    .st-key-{cont_key} p.help-sub {{ margin: 0; text-align: center; }}
+    .st-key-{btn_key} > div > button {{
+        width: 34px; height: 34px; min-width: 34px; min-height: 34px; padding: 0 !important;
+        border-radius: 50%; font-size: 0.95rem; font-weight: 800;
+        background: rgba(139, 92, 246, 0.16); color: #a78bfa;
+        border: 1px solid rgba(139, 92, 246, 0.45);
+        display: flex; align-items: center; justify-content: center;
+        backdrop-filter: blur(6px); box-shadow: 0 0 12px rgba(139, 92, 246, 0.25);
+    }}
+    .st-key-{btn_key} > div > button:hover {{ background: rgba(139, 92, 246, 0.35); color: #ffffff; }}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+    with st.container(key=cont_key):
+        if subtitle_html:
+            st.markdown(f'<p class="help-sub">{subtitle_html}</p>', unsafe_allow_html=True)
+        if st.button("❓", key=btn_key, help="¿Cómo funciona esta sección?"):
+            _help_dialog(modal_title, body_html)
 
 
 def render_scroll_to_top_button():

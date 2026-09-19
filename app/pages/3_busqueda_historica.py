@@ -8,7 +8,7 @@ load_dotenv()
 st.set_page_config(page_title="Búsqueda Histórica - SueñaLotto", page_icon="🔎", layout="wide")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from app.shared import render_global_header, api_get, api_post, init_session_state
+from app.shared import render_global_header, api_get, api_post, init_session_state, render_help_button
 
 init_session_state()
 
@@ -28,7 +28,23 @@ historica_limit = tier_info.get("historica_limit", 3)
 is_free = tier_name in ("free", "trial")
 
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">🔍 Buscador Histórico Inteligente</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color:var(--text-secondary);text-align:center;">Busca resultados históricos con filtros combinados</p>', unsafe_allow_html=True)
+render_help_button(
+    help_key="historica",
+    subtitle_html='<span style="color:var(--text-secondary);">Busca resultados históricos con filtros combinados</span>',
+    modal_title="🔍 ¿Cómo usar el Buscador Histórico?",
+    body_html="""
+        <b>¿Qué hace esta página?</b><br>
+        Busca en el historial real de la lotería de Florida cualquier número o combinación
+        que cumpla los filtros que elijas, para validar tus ideas antes de jugar.<br><br>
+        <b>¿Cómo se usa?</b>
+        <ol style="margin:0;padding-left:1.2rem;">
+            <li>Elige <b>juego</b> (Pick 3 / Pick 4) y <b>sorteo</b> (E = noche, M = mediodía).</li>
+            <li>Puedes escribir <b>dígitos contenidos</b> (ej: “1,7”) y elegir el <b>rango de fechas</b>.</li>
+            <li>Pulsa <b>Buscar</b> y revisa cuántas veces y cuándo salió esa combinación.</li>
+        </ol>
+        <br><span style="color:#64748b;font-size:0.85rem;">Con tu cuenta gratis tienes 3 búsquedas al día y desde 2008. Los usuarios Pro buscan sin límite y desde 1988.</span>
+    """,
+)
 
 if is_free and historica_limit < 999:
     remaining = historica_limit - historica_today

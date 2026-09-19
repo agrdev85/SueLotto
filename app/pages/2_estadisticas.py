@@ -12,7 +12,7 @@ API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 st.set_page_config(page_title="Estadísticas - SueñaLotto", page_icon="📈", layout="wide")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from app.shared import render_global_header, api_get, api_post, init_session_state, render_pro_card
+from app.shared import render_global_header, api_get, api_post, init_session_state, render_pro_card, render_help_button
 
 init_session_state()
 
@@ -39,6 +39,25 @@ if not tier_info or tier_info.get("tier") not in ("pro", "lifetime", "admin"):
     st.stop()
 
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">📈 Estadísticas Detalladas</h1>', unsafe_allow_html=True)
+render_help_button(
+    help_key="estad",
+    subtitle_html='<span style="color:var(--text-secondary);">Elige juego, sorteo y período y analiza frecuencias, números calientes, fríos y patrones.</span>',
+    modal_title="📈 ¿Cómo funcionan las Estadísticas?",
+    body_html="""
+        <b>¿Qué hace esta página?</b><br>
+        Analiza los números de la lotería de Florida con métodos estadísticos:
+        frecuencia de aparición, pares (00-99), números calientes/fríos, análisis de combinaciones y tendencias de los últimos sorteos.<br><br>
+        <b>¿Cómo se usa?</b>
+        <ol style="margin:0;padding-left:1.2rem;">
+            <li>Elige el <b>juego</b> (Pick 3 / Pick 4).</li>
+            <li>Selecciona el <b>sorteo</b>: E (Evening, noche) o M (Midday, mediodía).</li>
+            <li>Define el <b>período</b> (7 a 365 días) y explora los gráficos y tablas.</li>
+            <li>Usa esos datos para elegir tus números con más información.</li>
+        </ol>
+        <br><span style="color:#94a3b8;"><b>Calientes</b> = los que más han salido. <b>Fríos</b> = los que menos aparecen. <b>Posibles</b> = los que llevan tiempo sin salir (atrasados).</span>
+        <br><span style="color:#64748b;font-size:0.85rem;">La estadística mejora tu estrategia, pero ningún resultado futuro está garantizado.</span>
+    """,
+)
 
 @st.cache_data(ttl=300)
 def api_get(path, params=None):

@@ -9,7 +9,7 @@ load_dotenv()
 st.set_page_config(page_title="Mis Jugadas - SueñaLotto", page_icon="📝", layout="wide")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from app.shared import render_global_header, api_get, api_post, init_session_state
+from app.shared import render_global_header, api_get, api_post, init_session_state, render_help_button
 
 init_session_state()
 
@@ -36,7 +36,24 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">📝 Mis Jugadas</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color:var(--text-secondary);text-align:center;">Registra tus jugadas y calcula ganancias potenciales</p>', unsafe_allow_html=True)
+render_help_button(
+    help_key="jugadas",
+    subtitle_html='<span style="color:var(--text-secondary);">Registra tus jugadas y calcula ganancias potenciales</span>',
+    modal_title="📝 ¿Cómo usar Mis Jugadas?",
+    body_html="""
+        <b>¿Qué hace esta página?</b><br>
+        Anota los números que quieres jugar (Pick 3 / Pick 4) con su cantidad apostada y la app
+        calcula cuánto pagarían por sorteo y el posible retorno si aciertas.<br><br>
+        <b>¿Cómo se usa?</b>
+        <ol style="margin:0;padding-left:1.2rem;">
+            <li>Pulsa <b>“Añadir jugada”</b> y elige juego, número fijo y/o corrido.</li>
+            <li>Indica el monto por jugada.</li>
+            <li>Confirma: verás el total apostado y la ganancia potencial.</li>
+            <li>Usa el resumen para decidir antes de jugar oficialmente.</li>
+        </ol>
+        <br><span style="color:#64748b;font-size:0.85rem;">Recuerda: es una herramienta de análisis y entretenimiento; ninguna jugada está garantizada.</span>
+    """,
+)
 
 bets = api_get("/api/bets")
 

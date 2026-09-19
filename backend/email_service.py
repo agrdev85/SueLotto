@@ -138,3 +138,20 @@ def send_contact_message(name: str, contact: str, subject: str, message: str, us
     </div>
     </div></body></html>"""
     return _send_email(SMTP_USER, f"[Soporte] {subject} - {name}", html)
+
+
+def send_manual_payment_alert(username: str, email: str, plan: str, amount: str, payment_id: int) -> bool:
+    """Avisa al administrador (SMTP_USER) de una nueva solicitud de pago manual pendiente."""
+    html = f"""
+    <html><body style="font-family:sans-serif;background:#0a0e1a;padding:2rem;">
+    <div style="max-width:480px;margin:auto;background:#1e293b;border-radius:1rem;padding:2rem;border:1px solid #334155;">
+    <h1 style="color:#fbbf24;text-align:center;">💰 Nueva solicitud de pago manual</h1>
+    <div style="background:#334155;border-radius:0.5rem;padding:1rem;margin:1rem 0;">
+    <p style="color:#f1f5f9;"><strong>Orden:</strong> #{payment_id}</p>
+    <p style="color:#f1f5f9;"><strong>Usuario:</strong> {username} ({email})</p>
+    <p style="color:#f1f5f9;"><strong>Plan:</strong> {plan}</p>
+    <p style="color:#f1f5f9;"><strong>Monto:</strong> {amount}</p>
+    </div>
+    <p style="color:#94a3b8;">Revisa y verifica el pago en tu panel de administración (Gestor BD → Pagos Manuales) para activar el plan.</p>
+    </div></body></html>"""
+    return _send_email(SMTP_USER, f"💰 Pago manual #{payment_id} pendiente — {username}", html)

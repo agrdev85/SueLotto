@@ -2,6 +2,7 @@ import streamlit as st
 import plotly.express as px
 from datetime import date, datetime, timedelta
 import os
+import random
 import sys
 import time
 from dotenv import load_dotenv
@@ -19,7 +20,7 @@ st.set_page_config(
 )
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.shared import render_global_header, api_get, api_post, init_session_state
+from app.shared import render_global_header, api_get, api_post, api_upload, init_session_state
 
 init_session_state()
 
@@ -30,6 +31,16 @@ def fetch_plans_data():
     import httpx as _httpx
     try:
         r = _httpx.get(f"{API_URL}/api/payments/plans", timeout=5)
+        return r.json()
+    except:
+        return {}
+
+
+@st.cache_data(ttl=300)
+def fetch_manual_pay_info():
+    import httpx as _httpx
+    try:
+        r = _httpx.get(f"{API_URL}/api/payments/manual/info", timeout=5)
         return r.json()
     except:
         return {}
@@ -46,6 +57,249 @@ def _fmt_plan(pid: str, plans: dict, promo: dict) -> str:
     if pid == "pro":
         return f"Pro Mensual — ${amt:.2f}/mes"
     return "Gratis"
+
+
+_PAY_GUIDE_PAGE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "pages", "12_metodos_pago.py")
+
+
+_TICKER_PHRASES = [
+    "Métodos estadísticos que aumentan significativamente tu % de acierto",
+    "No aseguramos premios, pero sí subir tus probabilidades de ganar",
+    "Estadística aplicada: juega con más ventaja en cada sorteo",
+    "Herramienta con análisis de probabilidades sorprendentes para tus juegos",
+    "Aumenta tu estrategia y mejora tu porcentaje con datos reales",
+    "SueñaLotto mejora tu probabilidad de ganar, siempre responsable",
+]
+
+_SOCIAL_KINDS = (
+    ("se registró en la aplicación", "🎉"),
+    ("creó una cuenta gratuita", "👋"),
+    ("adquirió la membresía Pro", "⚡"),
+    ("adquirió la membresía De por Vida", "⭐"),
+)
+
+
+def _social_schedule():
+    sched = st.session_state.get("social_proof_schedule")
+    if sched is not None:
+        return sched
+    now = time.time()
+    events = []
+    t = now + random.uniform(5, 10)
+    for _ in range(random.randint(7, 10)):
+        txt, icon = random.choice(_SOCIAL_KINDS)
+        events.append({
+            "uid": random.randint(1000, 9999),
+            "txt": txt,
+            "icon": icon,
+            "show_at": t,
+            "dur": random.uniform(6, 9),
+        })
+        t += random.uniform(16, 48)
+    sched = {"events": events}
+    st.session_state["social_proof_schedule"] = sched
+    return sched
+
+
+@st.fragment(run_every=3.0)
+def _render_social_proof():
+    sched = _social_schedule()
+    dismissed = set(st.session_state.get("social_proof_dismissed", []))
+    now = time.time()
+    visible = [
+        e for e in sched["events"]
+        if e["show_at"] <= now <= e["show_at"] + e["dur"] and e["uid"] not in dismissed
+    ]
+    if not visible:
+        return
+    fixed_css = "".join(
+        f'.st-key-soc_x_{e["uid"]}{{position:fixed;right:1.05rem;z-index:901;'
+        f'bottom:calc(1.3rem + {i} * 4.6rem + 13px);}}'
+        for i, e in enumerate(visible)
+    )
+    st.markdown(f"<style>{fixed_css}</style>", unsafe_allow_html=True)
+    for i, e in enumerate(visible):
+        st.markdown(
+            f'<div class="soc-toast" style="bottom:calc(1.3rem + {i} * 4.6rem);">'
+            f'<span class="soc-ava">{e["icon"]}</span>'
+            f'<span class="soc-body">El usuario <b>#{e["uid"]}</b> {e["txt"]}</span>'
+            '<span class="soc-dot"></span></div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("✕", key=f"soc_x_{e['uid']}", help="Cerrar"):
+            st.session_state.setdefault("social_proof_dismissed", []).append(e["uid"])
+
+
+_MANUAL_METHODS = {
+    "Transfermóvil (MLC/USD)": "transfermovil",
+    "Enzona": "enzona",
+    "Zelle": "zelle",
+    "Otro (pregunta al soporte)": "otro",
+}
+
+_MANUAL_INSTRUCTIONS_HTML = """
+<div style="background:#1e293b;border:1px solid #334155;border-radius:0.75rem;padding:1rem;margin:0.5rem 0;">
+<p style="color:#fbbf24;font-weight:700;margin:0 0 0.3rem;">📲 Pago manual — Transfermóvil / MLC</p>
+<ol style="color:#94a3b8;font-size:0.85rem;margin:0;padding-left:1.2rem;">
+<li>Escribe al <b style="color:#f1f5f9;">WhatsApp/Telegram del soporte</b> (aparece en la página Soporte) para recibir el número/cuenta a donde enviar el monto (MLC o USD).</li>
+<li>Haz la transferencia por <b style="color:#f1f5f9;">Transfermóvil</b> o <b style="color:#f1f5f9;">Enzona</b>.</li>
+<li>Adjunta aquí el <b style="color:#f1f5f9;">comprobante</b> (captura/PDF) y deja tu nombre + número.</li>
+<li>El <b style="color:#f1f5f9;">administrador verifica el pago</b> y activa tu plan (normalmente en minutos).</li>
+</ol>
+</div>
+"""
+
+_MANUAL_INFO_LABELS = {
+    "owner": "Titular",
+    "account": "Número / cuenta",
+    "phone": "Teléfono de contacto",
+    "reference": "Referencia a escribir",
+    "telegram": "Telegram",
+}
+
+
+def render_manual_payment(plan_id: str, key_suffix: str):
+    """Flujo de pago manual (Transfermóvil/MLC): solicitud + comprobante."""
+    st.markdown(_MANUAL_INSTRUCTIONS_HTML, unsafe_allow_html=True)
+    man_info = fetch_manual_pay_info()
+    if man_info and any(k in man_info for k in ("owner", "account", "phone", "telegram", "reference")):
+        rows_html = "".join(
+            f"<p style='margin:0.1rem 0;color:#f1f5f9;font-size:0.9rem;'>{_MANUAL_INFO_LABELS[kk]}: "
+            f"<b>{vv}</b></p>"
+            for kk, vv in man_info.items()
+            if kk in _MANUAL_INFO_LABELS and vv
+        )
+        if rows_html:
+            st.markdown(
+                f'<div style="background:#0f172a;border:1px solid #22c55e;border-radius:0.75rem;'
+                f'padding:0.75rem 1rem;margin-bottom:0.5rem;">'
+                f'<p style="color:#22c55e;font-weight:700;margin:0 0 0.3rem;">🏦 Datos para el pago</p>{rows_html}</div>',
+                unsafe_allow_html=True,
+            )
+    if st.button("📖 Ver guía paso a paso del pago manual", key=f"mp_guide_{key_suffix}", use_container_width=True):
+        st.switch_page("pages/12_metodos_pago.py")
+    method_sel = st.selectbox(
+        "Método de pago",
+        list(_MANUAL_METHODS.keys()),
+        key=f"mp_method_{key_suffix}",
+    )
+    _cur_user = st.session_state.get("user", {}) or {}
+    st.text_input(
+        "Usuario (se envían los datos de tu cuenta)",
+        value=_cur_user.get("username", ""),
+        disabled=True,
+        key=f"mp_user_{key_suffix}",
+    )
+    ref = st.text_input(
+        "Nº de referencia / código del comprobante (si lo tienes)",
+        placeholder="Ej: 4829137",
+        key=f"mp_ref_{key_suffix}",
+    )
+    phone = st.text_input(
+        "Teléfono desde el que haces la transferencia (obligatorio)",
+        placeholder="Ej: 53 5123 4567",
+        key=f"mp_phone_{key_suffix}",
+    )
+    max_mb = man_info.get("max_receipt_mb", 8)
+    up = st.file_uploader(
+        "Adjunta la captura o PDF del comprobante (obligatorio)",
+        type=["png", "jpg", "jpeg", "pdf", "webp", "gif"],
+        key=f"mp_up_{key_suffix}",
+        help=f"Máximo {int(max_mb)} MB. Se enviará junto con tu solicitud para que el administrador la verifique.",
+    )
+    if st.button("💸 Enviar solicitud y esperar confirmación", type="primary", key=f"mp_send_{key_suffix}", use_container_width=True):
+        if not (phone or "").strip():
+            st.error("El teléfono desde el que haces la transferencia es obligatorio para identificarte.")
+            return
+        if not up:
+            st.error("Adjunta la fotografía o PDF del comprobante de pago obligatoriamente.")
+            return
+        req = api_post("/api/payments/manual/request", {
+            "plan": plan_id,
+            "method": _MANUAL_METHODS[method_sel],
+            "reference": ref,
+            "notes": (phone or "").strip(),
+        })
+        if req:
+            resp = api_upload(
+                f"/api/payments/manual/{req['id']}/receipt",
+                files={"receipt": (up.name, up.getvalue(), up.type)},
+            )
+            if not resp:
+                st.error("Solicitud creada, pero no se pudo adjuntar el comprobante. Intenta subirlo de nuevo.")
+            st.session_state.pop("show_manual_pay", None)
+            st.session_state.pop("show_upg_manual", None)
+            st.toast("✅ Solicitud enviada. El administrador verificará tu pago y activará tu plan.", icon="✅")
+            st.rerun()
+        else:
+            detail = st.session_state.get("last_api_error")
+            st.error(f"No se pudo crear la solicitud: {detail}" if detail else "No se pudo crear la solicitud.")
+
+
+_MP_STATUS_STYLE = {
+    "pending": ("⏳ Pendiente", "#fbbf24"),
+    "approved": ("✅ Aprobada", "#22c55e"),
+    "rejected": ("❌ Rechazada", "#ef4444"),
+}
+
+
+@st.fragment
+def render_mis_pagos_manuales():
+    """Panel 'Mis pagos manuales': estado de cada solicitud + adjuntar/reemplazar comprobante."""
+    mine = api_get("/api/payments/manual/mine")
+    if not mine:
+        return
+    if isinstance(mine, dict):
+        mine = [mine]
+    st.markdown("---")
+    st.html('<h3 style="color:#fbbf24;">💸 Mis pagos manuales</h3>')
+    for p in mine:
+        status, color = _MP_STATUS_STYLE.get(p.get("status"), ("❓ Desconocido", "#94a3b8"))
+        with st.container(border=True):
+            st.html(
+                f'<span style="color:{color};font-weight:700;font-size:0.95rem;">{status}</span> '
+                f'· <b style="color:#f1f5f9;">{_fmt_plan(p["plan_id"], _plans_api, _promo_api)}</b> · '
+                f'<span style="color:#cbd5e1;">${p.get("amount", 0):.2f}</span>'
+            )
+            st.caption(
+                f'#ID {p.get("id")} · {p.get("method", "Manual").capitalize()} · '
+                f'enviada el {str(p.get("created_at"))[:10]}'
+                + (f' · revisada el {str(p.get("reviewed_at"))[:10]}' if p.get("reviewed_at") else "")
+            )
+            if p.get("reference"):
+                st.caption(f"🧾 Referencia: {p['reference']}")
+            if p.get("admin_notes"):
+                st.html(
+                    f'<div style="background:#0f172a;border:1px solid #334155;border-radius:0.5rem;'
+                    f'padding:0.5rem 0.75rem;margin-top:0.3rem;"><span style="color:#94a3b8;">'
+                    f'Nota del administrador:</span> <span style="color:#f1f5f9;">{p["admin_notes"]}</span></div>'
+                )
+            if p.get("status") == "pending":
+                if p.get("receipt_filename"):
+                    st.success("📎 Comprobante adjunto ✓ (puedes reemplazarlo si es necesario).")
+                else:
+                    st.warning("⚠️ Aún no has adjuntado el comprobante.")
+                pid = p.get("id")
+                up = st.file_uploader(
+                    "Adjuntar / reemplazar comprobante",
+                    type=["png", "jpg", "jpeg", "pdf", "webp", "gif"],
+                    key=f"mypay_up_{pid}",
+                )
+                if st.button("📤 Subir comprobante", key=f"mypay_btn_{pid}", use_container_width=True):
+                    if not up:
+                        st.error("Selecciona primero el archivo del comprobante.")
+                    else:
+                        resp = api_upload(
+                            f"/api/payments/manual/{pid}/receipt",
+                            files={"receipt": (up.name, up.getvalue(), up.type)},
+                        )
+                        if resp:
+                            st.toast("✅ Comprobante subido. El administrador lo revisará.", icon="✅")
+                            st.rerun()
+                        else:
+                            st.error(f"No se pudo subir el comprobante: {st.session_state.get('last_api_error')}")
+            elif p.get("status") == "rejected":
+                st.info("Tu solicitud no fue aprobada. Crea una nueva solicitud si deseas reintentar.")
 
 
 _plan_data = fetch_plans_data()
@@ -178,14 +432,112 @@ if not st.session_state.get("user"):
     @keyframes promoPulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 12px rgba(239, 68, 68, 0.4); } 50% { transform: scale(1.07); box-shadow: 0 0 28px rgba(239, 68, 68, 0.8); } }
     @keyframes promoBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
+    /* ===== Franja de frases superior (estilo TV) ===== */
+    [data-testid="stMainBlockContainer"] { padding-top: 0; }
+    .ticker { position: relative; min-height: 4rem; margin: 0; display: flex; align-items: center; justify-content: center; }
+    .ticker .tk-msg {
+        position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+        text-align: center; padding: 0 1rem;
+        font-size: 0.95rem; font-weight: 600; letter-spacing: 0.4px;
+        color: #dbe4f0; text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
+        opacity: 0; will-change: opacity;
+        animation-name: tkCycle; animation-timing-function: linear; animation-iteration-count: infinite;
+    }
+
+    /* ===== Botón planeta (métodos de pago) ===== */
+    .planet-zone { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 2.25rem 1rem 1.5rem; }
+    .planet-stage { display: flex; flex-direction: column; align-items: center; position: relative; text-align: center; }
+    .st-key-pay_planet { display: inline-block; position: relative; vertical-align: middle; }
+    .st-key-pay_planet::before, .st-key-pay_planet::after {
+        content: ""; position: absolute; left: 50%; top: 50%;
+        width: 86px; height: 86px; border-radius: 50%;
+        border: 1.5px solid rgba(139, 92, 246, 0.65);
+        transform: translate(-50%, -50%); animation: planetPulse 2.6s ease-out infinite; pointer-events: none;
+    }
+    .st-key-pay_planet::after { animation-delay: 1.3s; }
+    .st-key-pay_planet button {
+        position: relative; width: 78px; height: 78px; min-width: 78px; min-height: 78px; padding: 0 !important;
+        border-radius: 50%; border: none; cursor: pointer;
+        background:
+            radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 34%),
+            radial-gradient(circle at 68% 72%, rgba(34, 211, 238, 0.32), rgba(34, 211, 238, 0) 42%),
+            radial-gradient(circle at 52% 55%, #8b5cf6, #6d28d9 46%, #312e81 80%, #1e1b4b);
+        box-shadow: inset -8px -10px 22px rgba(2, 6, 23, 0.75), inset 6px 8px 18px rgba(255, 255, 255, 0.16), 0 0 24px rgba(139, 92, 246, 0.5);
+        animation: planetFloat 5s ease-in-out infinite;
+        transition: box-shadow 0.3s;
+    }
+    .st-key-pay_planet button:hover { box-shadow: inset -8px -10px 22px rgba(2, 6, 23, 0.75), inset 6px 8px 18px rgba(255, 255, 255, 0.18), 0 0 36px rgba(139, 92, 246, 0.75); }
+    .st-key-pay_planet button p { margin: 0; font-size: 1.6rem; line-height: 1; text-shadow: 0 0 14px rgba(255, 255, 255, 0.35); }
+    .planet-label { margin-top: 0.85rem; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.35px; color: #8494af; }
+    .planet-label b { background: linear-gradient(135deg, #fbbf24, #f97316); -webkit-background-clip: text; -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.45)); }
+    @keyframes planetPulse { 0% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; } 100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; } }
+    @keyframes planetFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+    /* ===== Tarjetas de actividad (social proof) ===== */
+    .soc-toast {
+        position: fixed; right: 3.2rem; z-index: 900;
+        display: flex; align-items: center; gap: 0.65rem;
+        max-width: min(340px, calc(100vw - 4.4rem));
+        padding: 0.6rem 0.85rem; border-radius: 1rem;
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(139, 92, 246, 0.4);
+        box-shadow: 0 8px 30px rgba(2, 6, 23, 0.55), 0 0 24px rgba(139, 92, 246, 0.25);
+        backdrop-filter: blur(10px);
+        animation: socCardIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    .soc-ava { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; background: linear-gradient(135deg, #6d28d9, #312e81); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
+    .soc-body { font-size: 0.8rem; color: #cbd5e1; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .soc-body b { color: #fbbf24; }
+    .soc-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.9); animation: dotBlink 1.6s ease-in-out infinite; }
+    [class^="st-key-soc_x_"] button {
+        width: 34px; height: 34px; min-width: 34px; min-height: 34px; padding: 0 !important;
+        border-radius: 50%; border: 1px solid rgba(148, 163, 184, 0.4);
+        background: rgba(148, 163, 184, 0.15); color: #e2e8f0; font-size: 0.95rem;
+        display: flex; align-items: center; justify-content: center;
+        backdrop-filter: blur(6px);
+    }
+    [class^="st-key-soc_x_"] button:hover { background: rgba(248, 113, 113, 0.35); color: #fff; }
+    @keyframes socCardIn { from { opacity: 0; transform: translateY(16px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes dotBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
     @media (max-width: 640px) {
         .hero.sparkle h1 { font-size: 1.9rem; }
         .hero.sparkle::after { display: none; }
         .tier-price, .promo-new { font-size: 1.8rem; }
         .card { padding: 1rem 0.7rem 0.9rem; }
+        .ticker .tk-msg { font-size: 0.78rem; }
+        .planet-zone { padding: 1.75rem 1rem 1.25rem; }
+        .st-key-pay_planet button { width: 62px; height: 62px; min-width: 62px; min-height: 62px; }
+        .st-key-pay_planet::before, .st-key-pay_planet::after { width: 70px; height: 70px; }
+        .st-key-pay_planet button p { font-size: 1.3rem; }
+        .planet-label { font-size: 0.72rem; margin-top: 0.7rem; }
     }
 </style>
 """, unsafe_allow_html=True)
+    n_tk = len(_TICKER_PHRASES)
+    seg_tk = 6.0
+    cyc_tk = n_tk * seg_tk
+    p_in = (0.9 / cyc_tk) * 100
+    p_hold = ((seg_tk - 0.9) / cyc_tk) * 100
+    p_out = (seg_tk / cyc_tk) * 100
+    tk_kf = (
+        "@keyframes tkCycle { "
+        f"0% {{opacity:0}} {p_in:.2f}% {{opacity:1}} {p_hold:.2f}% {{opacity:1}} "
+        f"{p_out:.2f}% {{opacity:0}} 100% {{opacity:0}} "
+        "}"
+    )
+    tk_msgs = "".join(
+        f'<div class="tk-msg" style="animation-duration:{cyc_tk:.1f}s;animation-delay:{i * seg_tk:.1f}s;">{p}</div>'
+        for i, p in enumerate(_TICKER_PHRASES)
+    )
+    st.markdown(f"<style>{tk_kf}</style><div class='ticker'>{tk_msgs}</div>", unsafe_allow_html=True)
+    st.markdown('<div class="planet-zone"><div class="planet-stage">', unsafe_allow_html=True)
+    if st.button("💳", key="pay_planet"):
+        st.switch_page(_PAY_GUIDE_PAGE)
+    st.markdown(
+        '<div class="planet-label">💳 <b>Ver Métodos de Pago</b> · Qvapay · Transfermóvil · MLC</div></div></div>',
+        unsafe_allow_html=True,
+    )
     st.markdown('<div class="hero sparkle"><h1>🌟 SueñaLotto</h1><p>Tu guía inteligente para la lotería de Florida. Análisis, estadísticas y la sabiduría de la Charada Cubana.</p></div>', unsafe_allow_html=True)
 
     col_a, col_b = st.columns([1, 1.5])
@@ -223,22 +575,40 @@ if not st.session_state.get("user"):
                     st.session_state["show_forgot"] = False
                     st.rerun()
         with tab_register:
+            plan_opts = {
+                "free": "Gratis",
+                "pro": f"Pro Mensual — ${_plans_api.get('pro', {}).get('amount', 1.99):.2f}/mes",
+                "lifetime": _fmt_plan("lifetime", _plans_api, _promo_api),
+            }
+            plan_sel = st.radio(
+                "Elige tu plan",
+                options=list(plan_opts.keys()),
+                format_func=lambda x: plan_opts[x],
+                key="reg_plan",
+                index=0,
+            )
+            reg_method = "Qvapay (automático)"
+            if plan_sel != "free":
+                reg_method = st.radio(
+                    "¿Cómo vas a pagar?",
+                    ["Qvapay (automático)", "Transfermóvil / MLC (manual)"],
+                    key="reg_pay_method",
+                )
             with st.form("register_form"):
                 ru = st.text_input("Usuario", placeholder="Elige un nombre", key="reg_user")
                 re = st.text_input("Email", placeholder="tu@email.com", key="reg_email")
                 rp = st.text_input("Contraseña", type="password", placeholder="Mínimo 4 caracteres", key="reg_pass")
-                plan_opts = {
-                    "free": "Gratis",
-                    "pro": f"Pro Mensual — ${_plans_api.get('pro', {}).get('amount', 1.99):.2f}/mes",
-                    "lifetime": _fmt_plan("lifetime", _plans_api, _promo_api),
-                }
-                plan_sel = st.radio("Elige tu plan", options=list(plan_opts.keys()), format_func=lambda x: plan_opts[x], index=0)
                 if st.form_submit_button("Crear Cuenta", type="primary", width='stretch'):
-                    res = api_post("/api/auth/register", {"username": ru, "email": re, "password": rp, "tier": plan_sel})
+                    api_tier = plan_sel
+                    if plan_sel != "free" and reg_method.startswith("Transfermóvil"):
+                        api_tier = "free"
+                    res = api_post("/api/auth/register", {"username": ru, "email": re, "password": rp, "tier": api_tier})
                     if res and "access_token" in res:
                         st.session_state["token"] = res["access_token"]
                         st.session_state["user"] = res["user"]
                         st.session_state["login_time"] = time.time()
+                        for _k in ("reg_user", "reg_email", "reg_pass", "reg_plan", "reg_pay_method"):
+                            st.session_state.pop(_k, None)
                         pay_url = res.get("payment_url")
                         if pay_url:
                             st.success("Cuenta creada. Redirigiendo al pago...")
@@ -250,12 +620,22 @@ if not st.session_state.get("user"):
                                 f'<a href="{pay_url}" target="_blank">Haz clic aquí si no redirige automáticamente</a>',
                                 unsafe_allow_html=True,
                             )
+                        elif plan_sel != "free" and reg_method.startswith("Transfermóvil"):
+                            st.session_state["show_manual_pay"] = plan_sel
+                            st.session_state["_mp_scrolled"] = False
+                            st.success("Cuenta creada. Completa el pago manual:")
+                            st.rerun()
                         else:
                             st.rerun()
                     else:
                         detail = st.session_state.get("last_api_error")
-                        st.error(f"Error al registrar: {detail}" if detail else "Error al registrar. Revisa los datos e intenta de nuevo.")
+                        if plan_sel != "free" and reg_method.startswith("Qvapay") and detail and "pago" in detail.lower():
+                            st.error("El pago automático (Qvapay) no está disponible en este momento. Elige 'Transfermóvil / MLC (manual)' para completar tu registro.")
+                        else:
+                            st.error(f"Error al registrar: {detail}" if detail else "Error al registrar. Revisa los datos e intenta de nuevo.")
         st.markdown('</div>', unsafe_allow_html=True)
+
+    _render_social_proof()
 
     with col_b:
         st.markdown('<div class="card"><h3 style="text-align:center;">🚀 Planes</h3>', unsafe_allow_html=True)
@@ -318,6 +698,11 @@ if not st.session_state.get("user"):
                 unsafe_allow_html=True,
             )
         st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown(
+        '<p style="text-align:center;color:var(--text-muted);opacity:0.75;font-size:0.72rem;margin:0.9rem 0 0;">🎲 Juega con moderación y responsabilidad. +18</p>',
+        unsafe_allow_html=True,
+    )
     st.stop()
 
 render_global_header()
@@ -906,14 +1291,65 @@ if user_tier == "free":
     buy_plan = st.radio("Selecciona un plan", ["pro", "lifetime"],
                         format_func=lambda x: _fmt_plan(x, _plans_api, _promo_api),
                         horizontal=True)
+    upg_method = st.radio("¿Cómo vas a pagar?", ["Qvapay (automático)", "Transfermóvil / MLC (manual)"],
+                          horizontal=True, key="upg_pay_method")
     if st.button("💳 Ir a Pago", type="primary", use_container_width=True):
-        pay_resp = api_post("/api/payments/create", {"plan": buy_plan})
-        if pay_resp and pay_resp.get("payment_url"):
-            st.markdown(f'<meta http-equiv="refresh" content="0;url={pay_resp["payment_url"]}">', unsafe_allow_html=True)
-            st.success(f"Redirigiendo a Qvapay para completar el pago...")
-            st.markdown(f'<a href="{pay_resp["payment_url"]}" target="_blank">Haz clic aquí si no redirige automáticamente</a>', unsafe_allow_html=True)
+        if upg_method.startswith("Transfermóvil"):
+            st.session_state["show_upg_manual"] = {"plan": buy_plan}
+            st.session_state["_mp_scrolled"] = False
+            st.rerun()
         else:
-            st.warning("El sistema de pagos no está disponible en este momento. Contacta al soporte.")
+            pay_resp = api_post("/api/payments/create", {"plan": buy_plan})
+            if pay_resp and pay_resp.get("payment_url"):
+                st.markdown(f'<meta http-equiv="refresh" content="0;url={pay_resp["payment_url"]}">', unsafe_allow_html=True)
+                st.success(f"Redirigiendo a Qvapay para completar el pago...")
+                st.markdown(f'<a href="{pay_resp["payment_url"]}" target="_blank">Haz clic aquí si no redirige automáticamente</a>', unsafe_allow_html=True)
+            else:
+                st.warning("El sistema de pagos no está disponible en este momento. Contacta al soporte.")
+
+    pending_mp = api_get("/api/payments/manual/mine")
+    if pending_mp:
+        pend = [p for p in pending_mp if p.get("status") == "pending"]
+        if pend:
+            st.caption(f"⏳ Tienes {len(pend)} solicitud(es) de pago manual pendiente(s) de activar.")
+
+    if not st.session_state.get("_tier_synced"):
+        prof = api_get("/api/auth/profile")
+        if prof:
+            st.session_state["_tier_synced"] = True
+            if prof.get("tier") != "free" and st.session_state["user"].get("tier") == "free":
+                st.session_state["user"]["tier"] = prof["tier"]
+                st.session_state["user"]["tier_expires"] = prof.get("tier_expires")
+                st.toast(f"✅ Tu plan {_fmt_plan(prof['tier'], _plans_api, _promo_api)} ya está activo. ¡Disfrútalo!", icon="🎉")
+                st.rerun()
+
+_mp_pending = bool(st.session_state.get("show_manual_pay") or st.session_state.get("show_upg_manual"))
+if _mp_pending:
+    st.markdown(
+        '<div id="manual-payment-section" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.45);border-radius:0.75rem;padding:0.1rem 1rem 1rem;margin:1rem 0;">',
+        unsafe_allow_html=True,
+    )
+    if st.session_state.get("show_manual_pay"):
+        man_plan = st.session_state["show_manual_pay"]
+        st.markdown(f'<h3 style="color:#fbbf24;">💸 Pago pendiente — {_fmt_plan(man_plan, _plans_api, _promo_api)}</h3>', unsafe_allow_html=True)
+        render_manual_payment(man_plan, "reg")
+    elif st.session_state.get("show_upg_manual"):
+        upg_state = st.session_state["show_upg_manual"]
+        st.markdown(f'<h3 style="color:#fbbf24;">💸 Pago pendiente — {_fmt_plan(upg_state["plan"], _plans_api, _promo_api)}</h3>', unsafe_allow_html=True)
+        render_manual_payment(upg_state["plan"], "upg")
+    st.markdown('</div>', unsafe_allow_html=True)
+    if not st.session_state.get("_mp_scrolled"):
+        st.session_state["_mp_scrolled"] = True
+        st.html(
+            "<script>window.setTimeout(function(){"
+            "var e=document.getElementById('manual-payment-section');"
+            "if(e){e.scrollIntoView({behavior:'smooth',block:'start'});}"
+            "},120);</script>",
+            unsafe_allow_javascript=True,
+        )
+
+if st.session_state.get("user"):
+    render_mis_pagos_manuales()
 
 # ─── Admin Panel (protected) ───────────────────────────────────
 is_admin_user = user_tier == "admin"

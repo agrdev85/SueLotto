@@ -228,7 +228,7 @@ def open_create(table, columns):
             st.rerun()
 
 
-tab_tablas, tab_export, tab_backups, tab_historicos = st.tabs(["📋 Tablas y Registros", "📤 Exportar / Importar", "💾 Copias de Seguridad", "📜 Históricos (PDF)"])
+tab_tablas, tab_export, tab_backups, tab_historicos, tab_pagos = st.tabs(["📋 Tablas y Registros", "📤 Exportar / Importar", "💾 Copias de Seguridad", "📜 Históricos (PDF)", "💰 Pagos Manuales"])
 
 # ─── Tab 1: CRUD ────────────────────────────────────────────────────
 with tab_tablas:
@@ -509,3 +509,135 @@ with tab_historicos:
 
     st.info("💡 Los registros quedan guardados en la base de datos (Neon), de modo que sobreviven a los reinicios "
             "del servidor. Si la descarga automática al arrancar falló, este proceso es el respaldo.")
+
+
+# ─── Tab 5: Pagos Manuales ─────────────────────────────────────────
+_PLAN_LABELS = {"pro": "Pro (mensual)", "lifetime": "De por Vida", "free": "Gratis"}
+_METHOD_LABELS = {
+    "transfermovil": "Transfermóvil (MLC/USD)",
+    "mlc": "MLC",
+    "enzona": "Enzona",
+    "zelle": "Zelle",
+    "otro": "Otro",
+}
+_STATUS_LABELS = {"pending": "⏳ Pendiente", "approved": "✅ Aprobado", "rejected": "❌ Rechazado"}
+def _fetch_bytes(path: str):
+    try:
+        r = httpx.get(
+            f"{API_URL}{path}",
+            headers={"Authorization": f"Bearer {st.session_state.get('token', '')}"},
+            timeout=30,
+        )
+        if r.status_code == 200:
+            ctype = r.headers.get("content-type", "")
+            fname = ""
+            disp = r.headers.get("content-disposition", "")
+            if "filename=" in disp:
+                fname = disp.split("filename=")[-1].strip('"')
+            return r.content, ctype, fname
+    except Exception:
+        pass
+    return None, "", ""
+
+
+with tab_pagos:
+    pc_resp, _ = _api_call("GET", "/api/payments/manual/pending-count")
+    n_pend = (pc_resp or {}).get("pending", 0)
+    badge_html = (
+        f'<span style="background:rgba(251,191,36,0.15);border:1px solid rgba(251,191,36,0.4);'
+        f'color:#fbbf24;border-radius:2rem;padding:0.15rem 0.8rem;font-size:0.8rem;font-weight:700;">'
+        f'🎯 {n_pend} pendiente(s) por activar</span>'
+        if n_pend
+        else '<span style="color:#64748b;font-size:0.8rem;">✅ Sin solicitudes pendientes</span>'
+    )
+    st.markdown(
+        f'<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">'
+        f'<h3 style="color:#fbbf24;margin:0;">💰 Pagos Manuales (Transfermóvil / MLC)</h3>{badge_html}</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p style="color:#94a3b8;font-size:0.85rem;">Cuando un usuario elige pagar por transferencia, envía una '
+        'solicitud con su comprobante. <b style="color:#fbbf24;">Verifica el pago en tu banco</b> y pulsa '
+        '<b style="color:#22c55e;">Aprobar</b> para activar su plan automáticamente.</p>', unsafe_allow_html=True)
+
+    pagos, _ = _api_call("GET", "/api/payments/manual/list")
+    if not pagos:
+        st.info("No hay solicitudes de pago manual todavía.")
+    else:
+        filtro = st.segmented_control(
+            "Estado",
+            options=["Todas", "pending", "approved", "rejected"],
+            format_func=lambda x: {"Todas": "📋 Todas"}.get(x, _STATUS_LABELS.get(x, x)),
+            default="pending",
+            key="gbd_mp_filtro",
+        )
+        filtradas = [p for p in pagos if filtro == "Todas" or p.get("status") == filtro]
+        st.caption(f"Mostrando {len(filtradas)} de {len(pagos)} solicitudes.")
+
+        for p in filtradas:
+            pid = p["id"]
+            with st.expander(
+                f"#{pid} · {p.get('username') or p.get('user_id')} · "
+                f"{_PLAN_LABELS.get(p.get('plan_id'), p.get('plan_id'))} · "
+                f"{_STATUS_LABELS.get(p.get('status'), p.get('status'))}",
+                expanded=(p.get("status") == "pending"),
+            ):
+                st.markdown(
+                    f'<div style="font-size:0.85rem;color:#94a3b8;">'
+                    f'💰 <b style="color:#f1f5f9;">${p.get("amount", 0):.2f}</b> · '
+                    f'{_METHOD_LABELS.get(p.get("method", ""), p.get("method", ""))} · '
+                    f'código: <b style="color:#f1f5f9;">{p.get("reference") or "—"}</b> · '
+                    f'enviado el {str(p.get("created_at") or "")[:16]}</div>',
+                    unsafe_allow_html=True,
+                )
+                if p.get("notes"):
+                    st.markdown(f'<p style="color:#94a3b8;font-size:0.85rem;">👤 Datos del usuario: <b style="color:#f1f5f9;">{p["notes"]}</b></p>', unsafe_allow_html=True)
+                if p.get("email"):
+                    st.markdown(
+                        f'<p style="color:#94a3b8;font-size:0.85rem;">📧 Email: <b style="color:#f1f5f9;">{p["email"]}</b> · '
+                        f'Plan actual del usuario: <b style="color:#f1f5f9;">{_PLAN_LABELS.get(p.get("tier"), p.get("tier") or "—")}</b></p>',
+                        unsafe_allow_html=True,
+                    )
+
+                if p.get("receipt_filename"):
+                    cached = st.session_state.get(f"mp_receipt_{pid}")
+                    if cached is None:
+                        if st.button("👁 Ver comprobante", key=f"gbd_mp_receipt_{pid}"):
+                            content, ctype, fname = _fetch_bytes(f"/api/payments/manual/{pid}/receipt")
+                            if content:
+                                st.session_state[f"mp_receipt_{pid}"] = (content, ctype, fname or p["receipt_filename"])
+                                st.rerun()
+                            else:
+                                st.error("No se pudo descargar el comprobante.")
+                    else:
+                        content, ctype, fname = cached
+                        if ctype.startswith("image/"):
+                            st.image(content, caption=fname, width=320)
+                        st.download_button("📎 Descargar comprobante", data=content, file_name=fname, key=f"gbd_mp_dl_{pid}")
+                else:
+                    st.caption("Sin comprobante adjunto.")
+
+                if p.get("admin_notes"):
+                    st.markdown(f'<p style="color:#64748b;font-size:0.85rem;">📝 Nota admin: {p["admin_notes"]}</p>', unsafe_allow_html=True)
+
+                if p.get("status") == "pending":
+                    c_a, c_r = st.columns(2)
+                    notes = st.text_input("Nota para el usuario (opcional)", key=f"gbd_mp_notes_{pid}")
+                    with c_a:
+                        if st.button("✅ Aprobar y activar plan", type="primary", key=f"gbd_mp_ok_{pid}", use_container_width=True):
+                            res, err = _api_call("POST", f"/api/payments/manual/{pid}/review", json={"status": "approved", "notes": notes})
+                            if err:
+                                st.error(f"Error: {err}")
+                            else:
+                                st.success("✅ Plan activado.")
+                                st.rerun()
+                    with c_r:
+                        if st.button("❌ Rechazar", key=f"gbd_mp_no_{pid}", use_container_width=True):
+                            res, err = _api_call("POST", f"/api/payments/manual/{pid}/review", json={"status": "rejected", "notes": notes})
+                            if err:
+                                st.error(f"Error: {err}")
+                            else:
+                                st.success("Solicitud rechazada.")
+                                st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)

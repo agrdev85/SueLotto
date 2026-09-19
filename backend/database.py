@@ -33,24 +33,35 @@ Base = declarative_base()
 def _add_missing_columns():
     from backend.models import User
 
-    inspector = inspect(engine)
-    existing_columns = {c["name"] for c in inspector.get_columns("users")}
-
-    model_columns = {
-        "email_verified": "BOOLEAN DEFAULT FALSE" if not IS_SQLITE else "BOOLEAN DEFAULT 0",
-        "email_verification_token": "VARCHAR(200)",
-        "password_reset_token": "VARCHAR(200)",
-        "password_reset_expires": "TIMESTAMP" if not IS_SQLITE else "DATETIME",
-        "tier": "VARCHAR(20) DEFAULT 'free'",
-        "tier_expires": "DATE",
-        "is_active": "BOOLEAN DEFAULT TRUE" if not IS_SQLITE else "BOOLEAN DEFAULT 1",
-    }
-
     with engine.connect() as conn:
-        for col_name, col_type in model_columns.items():
-            if col_name not in existing_columns:
-                logger.info("Adding missing column: users.%s", col_name)
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+        for table, model_columns in (
+            (
+                "users",
+                {
+                    "email_verified": "BOOLEAN DEFAULT FALSE" if not IS_SQLITE else "BOOLEAN DEFAULT 0",
+                    "email_verification_token": "VARCHAR(200)",
+                    "password_reset_token": "VARCHAR(200)",
+                    "password_reset_expires": "TIMESTAMP" if not IS_SQLITE else "DATETIME",
+                    "tier": "VARCHAR(20) DEFAULT 'free'",
+                    "tier_expires": "DATE",
+                    "is_active": "BOOLEAN DEFAULT TRUE" if not IS_SQLITE else "BOOLEAN DEFAULT 1",
+                },
+            ),
+            (
+                "manual_payments",
+                {
+                    "receipt_extension": "VARCHAR(10)",
+                    "receipt_data": "BYTEA" if not IS_SQLITE else "BLOB",
+                },
+            ),
+        ):
+            if not engine.dialect.has_table(conn, table):
+                continue
+            existing_columns = {c["name"] for c in inspect(conn).get_columns(table)}
+            for col_name, col_type in model_columns.items():
+                if col_name not in existing_columns:
+                    logger.info("Adding missing column: %s.%s", table, col_name)
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}"))
         conn.commit()
 
 

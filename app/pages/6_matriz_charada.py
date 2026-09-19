@@ -8,7 +8,7 @@ load_dotenv()
 st.set_page_config(page_title="Matriz & Charada", page_icon="🔢", layout="wide")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from app.shared import render_global_header, api_get, api_post, init_session_state, render_pro_card
+from app.shared import render_global_header, api_get, api_post, init_session_state, render_pro_card, render_help_button
 
 init_session_state()
 
@@ -54,7 +54,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 style="text-align:center;color:#fbbf24;">🔢 Matriz & Charada</h1>', unsafe_allow_html=True)
-st.markdown('<p style="text-align:center;color:var(--text-secondary);">Análisis matricial de números • Comparación con calientes y posibles</p>', unsafe_allow_html=True)
+render_help_button(
+    help_key="matriz_global",
+    subtitle_html='<span style="color:var(--text-secondary);">Análisis matricial de números • Comparación con calientes y posibles</span>',
+    modal_title="🔢 ¿Qué es la Matriz & Charada?",
+    body_html="""
+        <b>La matriz</b> es una cuadrícula donde cada número tiene una posición fija
+        (la “matriz nueva” de 10x10 o la “matriz vieja” de 11x11 usada por jugadores tradicionales).
+        <br><br>
+        <b>La charada</b> asocia cada número (1-100) con palabras o sueños de la tradición popular cubana.
+        <br><br>
+        Esta página une ambas cosas para ayudarte a elegir combinaciones con más contexto.
+        <br><br>
+        <span style="color:#64748b;font-size:0.85rem;">Explora cada pestaña: usan la matriz para buscar números vecinos, comparar contra los calientes y consultar la charada.</span>
+    """,
+)
 
 MATRIZ_NUEVA = [
     [1, 100, 2, 99, 3, 98, 4, 97, 5, 96],
@@ -91,6 +105,27 @@ tabs = st.tabs(["📊 Matriz Visual", "🔍 Alrededor", "📈 Comparar & Reducir
 
 # ─── Tab 0: Matriz Visual ────────────────────────────────────────
 with tabs[0]:
+
+    render_help_button(
+        help_key="m0",
+        subtitle_html='<span style="color:var(--text-secondary);">Haz clic en una celda para marcar un número y ver su vecindario en la matriz.</span>',
+        modal_title="📊 ¿Cómo usar la Matriz Visual?",
+        body_html="""
+            <b>¿Qué muestra?</b><br>
+            La matriz (nueva 10x10 o vieja 11x11) con cada número coloreado según su estado:
+            <span style="color:#f97316;">🟠 en calientes y posibles</span>,
+            <span style="color:#ef4444;">🔴 caliente</span>,
+            <span style="color:#3b82f6;">🔵 posible</span>,
+            <span style="color:#a855f7;">🟣 frío</span>,
+            <span style="color:#e2e8f0;">⚪ normal</span>.<br><br>
+            <b>¿Cómo se usa?</b>
+            <ol style="margin:0;padding-left:1.2rem;">
+                <li>Arriba elige el <b>Tipo de Matriz</b> (nueva o vieja).</li>
+                <li>Haz clic en cualquier celda para seleccionarla.</li>
+                <li>Abajo aparecen los números que la rodean y su análisis.</li>
+            </ol>
+        """,
+    )
 
     matriz_actual = MATRIZ_NUEVA if tipo_matriz == "nueva" else MATRIZ_VIEJA
     cols_labels = [chr(ord("a") + i) for i in range(len(matriz_actual[0]))]
@@ -207,6 +242,23 @@ with tabs[0]:
 
 # ─── Tab 1: Alrededor ────────────────────────────────────────────
 with tabs[1]:
+    render_help_button(
+        help_key="m1",
+        subtitle_html='<span style="color:var(--text-secondary);">Escribe números y descubre qué números los rodean en la matriz.</span>',
+        modal_title="🔍 ¿Cómo usar “Números Alrededor”?",
+        body_html="""
+            <b>¿Qué hace?</b><br>
+            Dado un número, calcula los números que lo rodean en la matriz
+            (diagonal, vertical y horizontal) y te los devuelve como candidatos.<br><br>
+            <b>¿Cómo se usa?</b>
+            <ol style="margin:0;padding-left:1.2rem;">
+                <li>Añade hasta <b>3 números</b>.</li>
+                <li>Pulsa <b>“Obtener Alrededor”</b>.</li>
+                <li>Revisa el conjunto de números vecinos generado para armar combinaciones.</li>
+            </ol>
+            <br><span style="color:#64748b;font-size:0.85rem;">Es una técnica tradicional de la matriz; sirve para ampliar y cruzar ideas.</span>
+        """,
+    )
     st.markdown(f'<div class="card"><h3>🔍 Números Alrededor</h3>', unsafe_allow_html=True)
 
     col_a1, col_a2, col_a3 = st.columns(3)
@@ -236,6 +288,22 @@ with tabs[1]:
 
 # ─── Tab 2: Comparar & Reducir ───────────────────────────────────
 with tabs[2]:
+    render_help_button(
+        help_key="m2",
+        subtitle_html='<span style="color:var(--text-secondary);">Cruza la matriz con calientes y posibles para reducir tu lista de números.</span>',
+        modal_title="📈 ¿Cómo usar “Comparar & Reducir”?",
+        body_html="""
+            <b>¿Qué hace?</b><br>
+            Compara los números de la matriz contra los <b>calientes</b>, <b>posibles</b> y <b>fríos</b>
+            de las estadísticas, para filtrar y quedarte con los más consistentes.<br><br>
+            <b>¿Cómo se usa?</b>
+            <ol style="margin:0;padding-left:1.2rem;">
+                <li>Ajusta juego, sorteo y límites de calientes/posibles.</li>
+                <li>Pulsa <b>Comparar</b> para ver el cruce de categorías.</li>
+                <li>Revisa la lista reducida y guárdala o úsala en Mis Jugadas.</li>
+            </ol>
+        """,
+    )
     st.markdown(f'<div class="card"><h3>📈 Comparar & Reducir</h3>', unsafe_allow_html=True)
 
     with st.expander("⚙️ Opciones de calientes y posibles", expanded=True):
@@ -386,6 +454,22 @@ f'Categoría asignada: 🔴caliente, 🔵posible, 🟡ambos, 🟢discriminante.<
 
 # ─── Tab 3: Análisis Completo ────────────────────────────────────
 with tabs[3]:
+    render_help_button(
+        help_key="m3",
+        subtitle_html='<span style="color:var(--text-secondary);">Todos los números clasificados por score, con calientes, posibles y discriminantes.</span>',
+        modal_title="📊 ¿Cómo usar el Análisis Completo?",
+        body_html="""
+            <b>¿Qué hace?</b><br>
+            Analiza todos los números de la charada y los ordena con un <b>score</b> que combina
+            frecuencia, atraso y categorías (caliente, posible, frío, discriminante).<br><br>
+            <b>¿Cómo se usa?</b>
+            <ol style="margin:0;padding-left:1.2rem;">
+                <li>Elige juego y sorteo en las opciones de análisis.</li>
+                <li>Revisa la tabla ordenada por score.</li>
+                <li>Los de mejor score son tus candidatos principales.</li>
+            </ol>
+        """,
+    )
     st.markdown(f'<div class="card"><h3>📊 Análisis Estadístico Completo</h3>'
                 f'<p style="color:#94a3b8;font-size:0.85rem;">'
                 f'Todos los números «alrededor» clasificados por score — incluye calientes, posibles y discriminantes.</p>',
@@ -561,6 +645,22 @@ with tabs[3]:
 
 # ─── Tab 4: Charada Enriquecida ──────────────────────────────────
 with tabs[4]:
+    render_help_button(
+        help_key="m4",
+        subtitle_html='<span style="color:var(--text-secondary);">Diccionario de la charada 1-100 con significados enriquecidos y búsqueda.</span>',
+        modal_title="📖 ¿Cómo usar la Charada Enriquecida?",
+        body_html="""
+            <b>¿Qué es?</b><br>
+            El diccionario tradicional de la charada cubana (números del 1 al 100),
+            enriquecido con significados extra para interpretar mejor tus sueños y palabras.<br><br>
+            <b>¿Cómo se usa?</b>
+            <ol style="margin:0;padding-left:1.2rem;">
+                <li>Escribe un <b>número</b> (ej: 15) o una <b>palabra clave</b> (ej: “serpiente”).</li>
+                <li>Lee el significado y los números asociados.</li>
+                <li>Explora la lista desplazable completa si no buscas algo concreto.</li>
+            </ol>
+        """,
+    )
     st.markdown(f'<div class="card"><h3>📖 Charada Enriquecida</h3>', unsafe_allow_html=True)
 
     query = st.text_input("🔍 Buscar por número (1-100) o palabra clave", placeholder="Ej: 15, perro, serpiente, río...", key="charada_unico")

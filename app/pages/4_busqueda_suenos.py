@@ -7,7 +7,7 @@ load_dotenv()
 st.set_page_config(page_title="Búsqueda de Sueños - SueñaLotto", page_icon="🌙", layout="wide")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from app.shared import render_global_header, api_get, api_post, init_session_state
+from app.shared import render_global_header, api_get, api_post, init_session_state, render_help_button
 
 init_session_state()
 
@@ -36,7 +36,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<h1 style="color:#fbbf24;text-align:center;">🌙 Búsqueda de Sueños</h1>', unsafe_allow_html=True)
-st.markdown('<p style="color:var(--text-secondary);text-align:center;">Describe tu sueño y descubre los números asociados según la tabla de sueños</p>', unsafe_allow_html=True)
+render_help_button(
+    help_key="suenos",
+    subtitle_html='<span style="color:var(--text-secondary);">Describe tu sueño y descubre los números asociados según la tabla de sueños</span>',
+    modal_title="🌙 ¿Cómo funciona la Interpretación de Sueños?",
+    body_html="""
+        <b>¿Qué hace esta página?</b><br>
+        Traduce las imágenes, objetos o situaciones de tu sueño en números,
+        según la tabla tradicional de la charada cubana.<br><br>
+        <b>¿Cómo se usa?</b>
+        <ol style="margin:0;padding-left:1.2rem;">
+            <li>Escribe las <b>palabras clave</b> de tu sueño (ej: “perro”, “casa”, “agua”).</li>
+            <li>La app compara con la tabla y te muestra los números y significados asociados.</li>
+            <li>Guarda o usa los números que más conecten contigo.</li>
+        </ol>
+        <br><span style="color:#64748b;font-size:0.85rem;">Con tu cuenta gratis puedes consultar 1 sueño al día. Con Pro, ilimitado.</span>
+    """,
+)
 
 if is_free and suenos_limit < 999:
     remaining = suenos_limit - suenos_today

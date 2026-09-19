@@ -5,9 +5,9 @@ import json
 import secrets
 import logging
 import threading
-from fastapi import FastAPI, Depends, Query, HTTPException, Body, Header, Request
+from fastapi import FastAPI, Depends, Query, HTTPException, Body, Header, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import ValidationError
 from sqlalchemy import text
@@ -22,7 +22,7 @@ from backend.logging_config import logger
 from backend.database import init_db, get_db, SessionLocal
 from backend.schemas import MatrizRequest, SecuenciaRequest, CompararRequest
 from backend.auth import hash_password, verify_password, create_access_token, decode_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from backend.models import User, Bet, UserUsage
+from backend.models import User, Bet, UserUsage, ManualPayment
 from backend.crud import (
     get_ultimos_resultados, get_resultados_historicos, get_frecuencias,
     get_atrasados, get_adivinanza_hoy, get_posibles_salir,
@@ -39,10 +39,10 @@ from backend.rate_limit import RateLimitMiddleware
 from backend.email_service import (
     send_verification_email, send_password_reset,
     send_welcome_email, send_payment_receipt, send_contact_message,
-    send_expiry_reminder,
+    send_expiry_reminder, send_manual_payment_alert,
     is_configured as email_configured,
 )
-from backend.qvapay import create_payment_url, process_webhook, verify_webhook, is_configured as qvapay_configured, PLANS, get_promo_info, increment_promo_purchases
+from backend.qvapay import create_payment_url, process_webhook, verify_webhook, mock_enabled, is_configured as qvapay_configured, PLANS, get_promo_info, get_lifetime_price, increment_promo_purchases
 from backend.db_manager import (
     export_db, import_db, run_backup, list_backups, restore_backup,
     delete_backup, get_backup_status, start_backup_scheduler,
@@ -1160,6 +1160,121 @@ def api_create_payment(
     return result
 
 
+def _activate_payment(user_id: int, plan_id: str, payment_id: str = "") -> Optional[
+    dict
+]:
+    """Activa el plan de un usuario tras un pago confirmado (webhook o mock)."""
+    from backend.database import SessionLocal
+    sess = SessionLocal()
+    try:
+        user = sess.query(User).filter(User.id == user_id).first()
+        if not user:
+            logger.error("Payment activation: user %s not found", user_id)
+            return {"action": "error", "reason": "user_not_found"}
+        plan = PLANS.get(plan_id)
+        if not plan:
+            logger.error("Payment activation: invalid plan %s", plan_id)
+            return {"action": "error", "reason": "invalid_plan"}
+        user.tier = plan_id
+        user.tier_expires = date.today() + timedelta(days=plan["days"])
+        sess.commit()
+        logger.info(
+            "Payment activated: user=%s plan=%s expires=%s",
+            user.username, plan_id, user.tier_expires,
+        )
+        send_payment_receipt(
+            user.email, user.username,
+            plan["name"], f"${plan['amount']:.2f}",
+            payment_id,
+        )
+        if plan_id == "lifetime":
+            total = increment_promo_purchases()
+            logger.info("Lifetime promo counter: %d", total)
+        return {"action": "activate", "user_id": user_id, "plan_id": plan_id, "ok": True}
+    except Exception as e:
+        logger.error("Payment activation error: %s", e)
+        sess.rollback()
+        return {"action": "error", "reason": "exception"}
+    finally:
+        sess.close()
+
+
+def _parse_mock_ext(ext: str) -> Optional[dict]:
+    parts = ext.split("_")
+    if len(parts) < 3 or parts[0] != "sl":
+        return None
+    try:
+        return {"user_id": int(parts[1]), "plan_id": parts[2]}
+    except (TypeError, ValueError):
+        return None
+
+
+@app.get("/api/payments/mock/confirm", response_class=HTMLResponse)
+def api_mock_confirm(ext: str):
+    parsed = _parse_mock_ext(ext)
+    if not parsed:
+        raise HTTPException(400, "external_id inválido")
+    plan = PLANS.get(parsed["plan_id"])
+    if not plan:
+        raise HTTPException(400, "Plan inválido")
+    amount = plan["amount"]
+    if parsed["plan_id"] == "lifetime":
+        amount, is_promo, remaining = get_lifetime_price()
+    return HTMLResponse(
+        f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pago simulado (dev) — SueñaLotto</title>
+<style>
+    body {{ font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0;
+           display: flex; justify-content: center; padding: 3rem 1rem; margin: 0; }}
+    .card {{ background: #1e293b; border: 1px solid #a855f7; border-radius: 1rem;
+            padding: 2rem; max-width: 420px; width: 100%; text-align: center; }}
+    .badge {{ display: inline-block; background: rgba(168,85,247,.18); color: #d8b4fe;
+              border: 1px solid rgba(168,85,247,.5); border-radius: 2rem; padding: .3rem 1rem;
+              font-size: .8rem; font-weight: 700; }}
+    h1 {{ margin: 1rem 0; font-size: 1.4rem; }}
+    .amount {{ font-size: 2.2rem; font-weight: 800; color: #fbbf24; margin: .5rem 0 1.5rem; }}
+    .warn {{ background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.4);
+            border-radius: .6rem; padding: .75rem; font-size: .8rem; color: #fde68a; margin-bottom: 1.5rem; }}
+    button {{ background: linear-gradient(135deg,#a855f7,#7c3aed); color: #fff; border: 0;
+              border-radius: .6rem; padding: .8rem 1.5rem; font-size: 1rem; font-weight: 700;
+              cursor: pointer; width: 100%; }}
+</style>
+</head>
+<body>
+<form method="post" action="/api/payments/mock/activate">
+<input type="hidden" name="ext" value="{ext}">
+<div class="card">
+    <span class="badge">⚡ MODO SIMULADO (solo desarrollo)</span>
+    <h1>Confirmar pago — {plan["name"]}</h1>
+    <div class="amount">${amount:.2f} {plan["currency"]}</div>
+    <div class="warn">⚠️ Esto simula el cobro por Qvapay. No se realiza ningún pago real.</div>
+    <button type="submit">✅ Confirmar pago (simulado)</button>
+</div>
+</form>
+</body>
+</html>""",
+    )
+
+
+@app.post("/api/payments/mock/activate")
+def api_mock_activate(ext: str = Form(...)):
+    parsed = _parse_mock_ext(ext)
+    if not parsed:
+        raise HTTPException(400, "external_id inválido")
+    result = _activate_payment(
+        user_id=parsed["user_id"], plan_id=parsed["plan_id"],
+        payment_id=f"mock_{ext}",
+    )
+    if not result or result.get("action") != "activate":
+        raise HTTPException(400, "No se pudo activar el pago")
+    url = f"{os.getenv('APP_URL', 'http://localhost:8501').rstrip('/')}/10_payment_success?plan={parsed['plan_id']}"
+    return RedirectResponse(url)
+
+
 @app.post("/api/payments/webhook")
 async def api_payments_webhook(request: Request):
     body = await request.body()
@@ -1179,35 +1294,290 @@ async def api_payments_webhook(request: Request):
 
     result = process_webhook(data)
     if result and result.get("action") == "activate":
-        from backend.database import SessionLocal
-        sess = SessionLocal()
-        try:
-            user = sess.query(User).filter(User.id == result["user_id"]).first()
-            if user:
-                plan = PLANS.get(result["plan_id"])
-                if plan:
-                    user.tier = result["plan_id"]
-                    user.tier_expires = date.today() + timedelta(days=plan["days"])
-                    sess.commit()
-                    logger.info(
-                        "Payment activated: user=%s plan=%s expires=%s",
-                        user.username, result["plan_id"], user.tier_expires,
-                    )
-                    send_payment_receipt(
-                        user.email, user.username,
-                        plan["name"], f"${plan['amount']:.2f}",
-                        result.get("payment_id", ""),
-                    )
-                    if result["plan_id"] == "lifetime":
-                        total = increment_promo_purchases()
-                        logger.info("Lifetime promo counter: %d", total)
-        except Exception as e:
-            logger.error("Webhook activation error: %s", e)
-            sess.rollback()
-        finally:
-            sess.close()
+        _activate_payment(
+            user_id=result["user_id"],
+            plan_id=result["plan_id"],
+            payment_id=result.get("payment_id", ""),
+        )
 
     return {"status": "ok"}
+
+
+# ─── Manual payments (Transfermóvil / MLC) ─────────────────────────
+
+_MANUAL_PAY_DIR = os.path.join(_BASE_DIR, "data", "manual_payments")
+_MANUAL_METHODS = ("transfermovil", "mlc", "enzona", "zelle", "otro")
+_MANUAL_EXTENSIONS = ("png", "jpg", "jpeg", "pdf", "webp", "gif")
+_RECEIPT_MIME = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+    "gif": "image/gif",
+    "pdf": "application/pdf",
+}
+_MANUAL_PAY_OWNER = os.getenv("MANUAL_PAY_OWNER", "").strip()
+_MANUAL_PAY_ACCOUNT = os.getenv("MANUAL_PAY_ACCOUNT", "").strip()
+_MANUAL_PAY_PHONE = os.getenv("MANUAL_PAY_PHONE", "").strip()
+_MANUAL_PAY_REF = os.getenv("MANUAL_PAY_REFERENCE", "").strip()
+_SUPPORT_TELEGRAM = os.getenv("SUPPORT_TELEGRAM", "").strip()
+_MAX_RECEIPT_MB = max(1.0, float(os.getenv("MAX_RECEIPT_MB", "8")))
+_MAX_RECEIPT_BYTES = int(_MAX_RECEIPT_MB * 1024 * 1024)
+
+
+def _mp_dict(mp: ManualPayment, username: str = None, email: str = None,
+             tier: str = None, tier_expires=None) -> dict:
+    return {
+        "id": mp.id,
+        "user_id": mp.user_id,
+        "username": username,
+        "email": email,
+        "tier": tier,
+        "tier_expires": tier_expires.isoformat() if tier_expires else None,
+        "plan_id": mp.plan_id,
+        "amount": mp.amount,
+        "method": mp.method,
+        "reference": mp.reference,
+        "notes": mp.notes,
+        "status": mp.status,
+        "receipt_filename": mp.receipt_filename,
+        "admin_notes": mp.admin_notes,
+        "created_at": mp.created_at.isoformat() if mp.created_at else None,
+        "reviewed_at": mp.reviewed_at.isoformat() if mp.reviewed_at else None,
+    }
+
+
+@app.get("/api/payments/manual/info")
+def api_manual_payment_info():
+    """Datos de la cuenta/contacto configurados para el pago manual (auto-servicio)."""
+    info = {"max_receipt_mb": _MAX_RECEIPT_MB}
+    for key, value in (
+        ("owner", _MANUAL_PAY_OWNER),
+        ("account", _MANUAL_PAY_ACCOUNT),
+        ("phone", _MANUAL_PAY_PHONE),
+        ("reference", _MANUAL_PAY_REF),
+        ("telegram", _SUPPORT_TELEGRAM),
+    ):
+        if value:
+            info[key] = value
+    return info
+
+
+@app.post("/api/payments/manual/request")
+def api_manual_payment_request(
+    data: dict = Body(...),
+    current_user: User = Depends(_require_user),
+    db: Session = Depends(get_db),
+):
+    plan_id = data.get("plan", "").strip().lower()
+    method = (data.get("method", "transfermovil") or "transfermovil").strip().lower()
+    reference = (data.get("reference") or "").strip()[:120]
+    notes = (data.get("notes") or "").strip()
+
+    if plan_id not in PLANS:
+        raise HTTPException(400, "Plan inválido")
+    if method not in _MANUAL_METHODS:
+        raise HTTPException(400, f"Método inválido. Usa: {', '.join(_MANUAL_METHODS)}")
+    if current_user.tier == plan_id and (
+        plan_id == "lifetime" or (current_user.tier_expires and current_user.tier_expires >= date.today())
+    ):
+        raise HTTPException(400, "Ya tienes este plan activo")
+
+    dup = (
+        db.query(ManualPayment)
+        .filter(
+            ManualPayment.user_id == current_user.id,
+            ManualPayment.plan_id == plan_id,
+            ManualPayment.status == "pending",
+        )
+        .first()
+    )
+    if dup:
+        raise HTTPException(
+            400,
+            f"Ya tienes una solicitud pendiente para este plan (ID #{dup.id}). "
+            "Adjunta el comprobante desde 'Mis pagos'.",
+        )
+
+    if plan_id == "lifetime":
+        amount, is_promo, remaining = get_lifetime_price()
+    else:
+        amount = PLANS[plan_id]["amount"]
+
+    mp = ManualPayment(
+        user_id=current_user.id,
+        plan_id=plan_id,
+        amount=amount,
+        method=method,
+        reference=reference,
+        notes=notes,
+        status="pending",
+    )
+    db.add(mp)
+    db.commit()
+    db.refresh(mp)
+    logger.info("Manual payment requested: user=%s plan=%s amount=%s", current_user.username, plan_id, amount)
+    send_manual_payment_alert(
+        current_user.username, current_user.email,
+        PLANS.get(plan_id, {}).get("name", plan_id), f"${amount:.2f}", mp.id,
+    )
+    return _mp_dict(mp, current_user.username, current_user.email,
+                    current_user.tier, current_user.tier_expires)
+
+
+@app.post("/api/payments/manual/{payment_id}/receipt")
+def api_manual_payment_receipt(
+    payment_id: int,
+    receipt: UploadFile = File(...),
+    current_user: User = Depends(_require_user),
+    db: Session = Depends(get_db),
+):
+    mp = db.query(ManualPayment).filter(ManualPayment.id == payment_id).first()
+    if not mp:
+        raise HTTPException(404, "Pago no encontrado")
+    if mp.user_id != current_user.id:
+        raise HTTPException(403, "Este pago no te pertenece")
+    if mp.status != "pending":
+        raise HTTPException(400, "Solo puedes adjuntar el comprobante mientras el pago esté pendiente")
+
+    raw_ext = os.path.splitext(receipt.filename or "")[1].lower()
+    ext = raw_ext.lstrip(".") if raw_ext else ""
+    if ext not in _MANUAL_EXTENSIONS:
+        raise HTTPException(400, f"Formato no permitido. Usa: {', '.join(_MANUAL_EXTENSIONS)}")
+
+    data = bytearray()
+    while True:
+        chunk = receipt.file.read(65536)
+        if not chunk:
+            break
+        data.extend(chunk)
+        if len(data) > _MAX_RECEIPT_BYTES:
+            raise HTTPException(400, f"El comprobante supera el tamaño máximo de {_MAX_RECEIPT_MB:.0f} MB")
+
+    if mp.receipt_filename:
+        prev = os.path.join(_MANUAL_PAY_DIR, mp.receipt_filename)
+        if os.path.exists(prev):
+            try:
+                os.remove(prev)
+            except OSError:
+                pass
+    fname = f"p{mp.id}_{mp.user_id}.{ext}"
+    mp.receipt_filename = fname
+    mp.receipt_extension = ext
+    mp.receipt_data = bytes(data)
+    db.commit()
+    logger.info("Manual payment receipt saved to DB: payment=%s name=%s bytes=%s", mp.id, fname, len(data))
+    return {"status": "ok", "id": mp.id, "receipt_filename": fname}
+
+
+@app.get("/api/payments/manual/mine")
+def api_manual_payment_mine(
+    current_user: User = Depends(_require_user),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(ManualPayment)
+        .filter(ManualPayment.user_id == current_user.id)
+        .order_by(ManualPayment.created_at.desc())
+        .all()
+    )
+    return [_mp_dict(r) for r in rows]
+
+
+@app.get("/api/payments/manual/list")
+def api_manual_payment_list(
+    status: Optional[str] = Query(None),
+    admin: User = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    q = db.query(ManualPayment)
+    if status:
+        q = q.filter(ManualPayment.status == status)
+    rows = q.order_by(ManualPayment.created_at.desc()).limit(200).all()
+    users = {u.id: u for u in db.query(User).filter(User.id.in_([r.user_id for r in rows])).all()} if rows else {}
+    return [
+        _mp_dict(
+            r,
+            users[r.user_id].username if r.user_id in users else None,
+            users[r.user_id].email if r.user_id in users else None,
+            users[r.user_id].tier if r.user_id in users else None,
+            users[r.user_id].tier_expires if r.user_id in users else None,
+        )
+        for r in rows
+    ]
+
+
+@app.get("/api/payments/manual/pending-count")
+def api_manual_payment_pending_count(
+    admin: User = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    n = db.query(ManualPayment).filter(ManualPayment.status == "pending").count()
+    return {"pending": n}
+
+
+@app.get("/api/payments/manual/{payment_id}/receipt")
+def api_manual_payment_receipt_get(
+    payment_id: int,
+    admin: User = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    mp = db.query(ManualPayment).filter(ManualPayment.id == payment_id).first()
+    if not mp or not mp.receipt_filename:
+        raise HTTPException(404, "Sin comprobante")
+    if mp.receipt_data:
+        media_type = _RECEIPT_MIME.get((mp.receipt_extension or "").lower(), "application/octet-stream")
+        return Response(
+            content=mp.receipt_data,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{mp.receipt_filename}"'},
+        )
+    fpath = os.path.join(_MANUAL_PAY_DIR, mp.receipt_filename)
+    if not os.path.exists(fpath):
+        raise HTTPException(404, "Archivo no encontrado")
+    return FileResponse(fpath, filename=mp.receipt_filename)
+
+
+@app.post("/api/payments/manual/{payment_id}/review")
+def api_manual_payment_review(
+    payment_id: int,
+    data: dict = Body(...),
+    admin: User = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    mp = db.query(ManualPayment).filter(ManualPayment.id == payment_id).first()
+    if not mp:
+        raise HTTPException(404, "Pago no encontrado")
+    new_status = (data.get("status") or "").strip().lower()
+    if new_status not in ("approved", "rejected"):
+        raise HTTPException(400, "Estado inválido: approved o rejected")
+
+    mp.status = new_status
+    mp.admin_notes = (data.get("notes") or "").strip()
+    mp.reviewed_at = datetime.utcnow()
+    db.commit()
+
+    if new_status == "approved":
+        user = db.query(User).filter(User.id == mp.user_id).first()
+        if user:
+            plan = PLANS.get(mp.plan_id)
+            if plan:
+                user.tier = mp.plan_id
+                user.tier_expires = date.today() + timedelta(days=plan["days"]) if mp.plan_id == "pro" else None
+                db.commit()
+                send_payment_receipt(
+                    user.email, user.username,
+                    plan["name"], f"${mp.amount:.2f}",
+                    f"MANUAL-{mp.id}",
+                )
+                if mp.plan_id == "lifetime":
+                    total = increment_promo_purchases()
+                    logger.info("Lifetime promo counter (manual): %d", total)
+                logger.info("Manual payment approved: payment=%s user=%s plan=%s", mp.id, user.username, mp.plan_id)
+        else:
+            logger.warning("Manual payment approved but user %s not found!", mp.user_id)
+
+    return _mp_dict(mp, admin.username)
 
 
 # ─── Bets ─────────────────────────────────────────────────────────

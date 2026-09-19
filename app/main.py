@@ -36,6 +36,24 @@ def _page(*rel: str):
 
 user = st.session_state.get("user")
 is_admin = bool(user and user.get("tier") == "admin")
+is_logged = bool(user)
+
+_sidebar_css = """
+<style>
+    [data-testid="stSidebar"] a[href*="10_payment_success"],
+    [data-testid="stSidebar"] a[href*="11_payment_cancel"] {
+        display: none !important;
+    }
+</style>
+"""
+if not is_logged:
+    _sidebar_css += """
+<style>
+    [data-testid="stSidebar"] { display: none !important; }
+    [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+</style>
+"""
+st.markdown(_sidebar_css, unsafe_allow_html=True)
 
 nav_pages = [
     st.Page(_page("dashboard.py"), title="Sorteos", icon="🎱", default=True),
@@ -46,6 +64,7 @@ nav_pages = [
     st.Page(_page("pages", "5_adivinanzas.py"), title="Adivinanzas", icon="🪄"),
     st.Page(_page("pages", "6_matriz_charada.py"), title="Matriz Charada", icon="🧮"),
     st.Page(_page("pages", "8_soporte.py"), title="Soporte", icon="🛟"),
+    st.Page(_page("pages", "12_metodos_pago.py"), title="Métodos de Pago", icon="💳"),
     st.Page(_page("pages", "9_reset_password.py"), title="Restablecer Contraseña", icon="🔐"),
     st.Page(_page("pages", "10_payment_success.py"), title="Pago Exitoso", icon="✅", url_path="10_payment_success"),
     st.Page(_page("pages", "11_payment_cancel.py"), title="Pago Cancelado", icon="❌", url_path="11_payment_cancel"),
@@ -55,5 +74,8 @@ nav_pages = [
 if is_admin:
     nav_pages.append(st.Page(_page("pages", "7_gestor_bd.py"), title="Gestor BD", icon="🗄️"))
 
-pg = st.navigation(nav_pages)
+if is_logged:
+    pg = st.navigation(nav_pages)
+else:
+    pg = st.navigation(nav_pages, position="hidden")
 pg.run()
