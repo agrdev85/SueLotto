@@ -53,7 +53,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         status_code=429,
                         content={"detail": "Demasiados intentos. Espera 5 minutos."},
                     )
-            else:
+            elif not path.startswith("/api/admin/"):
                 ok = _rate_limiter.check(
                     f"general:{client_ip}", RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW
                 )

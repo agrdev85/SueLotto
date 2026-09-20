@@ -317,8 +317,14 @@ with tab_export:
     st.markdown('<div class="card"><h3>📤 Exportar base de datos completa</h3>', unsafe_allow_html=True)
     st.markdown('<p style="color:#94a3b8;font-size:0.85rem;">Descarga un archivo JSON con <b>todas las tablas y registros</b>. Úsalo como respaldo o para transferir la BD a otro servidor.</p>', unsafe_allow_html=True)
 
-    export_data = api_get("/api/admin/db/export", timeout=120)
-    if export_data:
+    if st.button("🔄 Generar exportación", type="primary", use_container_width=True):
+        with st.spinner("Exportando todos los datos… (puede tardar unos segundos)"):
+            st.session_state["gbd_export_data"] = api_get("/api/admin/db/export", timeout=120)
+            st.session_state["gbd_export_done"] = True
+    export_data = st.session_state.get("gbd_export_data")
+    if export_data is None and not st.session_state.get("gbd_export_done"):
+        st.info("Pulsa 'Generar exportación' para cargar todos los datos de la base de datos.")
+    elif export_data:
         json_bytes = json.dumps(export_data, ensure_ascii=False, indent=1, default=str).encode("utf-8")
         st.download_button(
             "⬇️ Descargar backup completo (JSON)",
