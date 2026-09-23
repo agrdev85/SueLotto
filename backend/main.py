@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from backend.logging_config import logger
-from backend.database import init_db, get_db, SessionLocal
+from backend.database import init_db, get_db, SessionLocal, IS_SQLITE
 from backend.schemas import MatrizRequest, SecuenciaRequest, CompararRequest
 from backend.auth import hash_password, verify_password, create_access_token, decode_token, ACCESS_TOKEN_EXPIRE_MINUTES
 from backend.models import User, Bet, UserUsage, ManualPayment
@@ -47,6 +47,7 @@ from backend.db_manager import (
     export_db, import_db, run_backup, list_backups, restore_backup,
     delete_backup, get_backup_status, start_backup_scheduler,
     get_tables_meta, get_records, create_record, update_record, delete_record,
+    _reset_sequences,
 )
 
 app = FastAPI(title="SueñaLotto API", version="2.0.0")
@@ -207,6 +208,8 @@ def on_startup():
                     logger.info("Charada imported: %d records", count)
                 except Exception as e:
                     logger.error("Charada import failed: %s", e)
+            if not IS_SQLITE:
+                _reset_sequences(db)
         finally:
             db.close()
         start_auto_updater()

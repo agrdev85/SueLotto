@@ -66,6 +66,10 @@ def _update_posibles_salir():
                         _log(f"    {juego} {sorteo}: sin resultados")
                 except Exception as e:
                     _log(f"    [ERROR] {juego} {sorteo}: {e}")
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
         _log("  [OK] posible_salir actualizado")
     except Exception as e:
         _log(f"  [ERROR] actualizar posible_salir: {e}")
