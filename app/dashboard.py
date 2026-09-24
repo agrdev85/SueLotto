@@ -101,7 +101,7 @@ def _social_schedule():
     return sched
 
 
-@st.fragment(run_every=3.0)
+@st.fragment(run_every=15.0)
 def _render_social_proof():
     sched = _social_schedule()
     dismissed = set(st.session_state.get("social_proof_dismissed", []))
@@ -295,7 +295,7 @@ def render_mis_pagos_manuales():
                         )
                         if resp:
                             st.toast("✅ Comprobante subido. El administrador lo revisará.", icon="✅")
-                            st.rerun()
+                            st.rerun(scope="fragment")
                         else:
                             st.error(f"No se pudo subir el comprobante: {st.session_state.get('last_api_error')}")
             elif p.get("status") == "rejected":

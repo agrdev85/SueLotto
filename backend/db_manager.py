@@ -52,6 +52,7 @@ TABLE_MODELS = [
     ("bets", models.Bet),
     ("user_usage", models.UserUsage),
     ("other_games", models.OtherGameResult),
+    ("manual_payments", models.ManualPayment),
 ]
 
 TABLE_BY_NAME = {name: model for name, model in TABLE_MODELS}
