@@ -14,7 +14,7 @@ import logging
 import threading
 from datetime import datetime, date
 
-from sqlalchemy import Date, DateTime, Integer, Float, Boolean, String, Text, insert
+from sqlalchemy import Date, DateTime, Integer, Float, Boolean, String, Text, insert, text
 from sqlalchemy.exc import IntegrityError
 
 from backend.database import SessionLocal, IS_SQLITE
@@ -261,18 +261,38 @@ def import_db(data: dict, mode: str = "replace", db=None) -> dict:
 
 
 def _reset_sequences(db):
-    """Re-sincroniza secuencias de autoincremento en PostgreSQL tras un import."""
+    """Re-sincroniza secuencias de autoincremento en PostgreSQL tras un import
+    o al arrancar. Si la secuencia no se detecta vía pg_get_serial_sequence
+    (esquema creado con IDENTITY u otro default), busca por el nombre
+    estándar '{tabla}_id_seq'."""
     if IS_SQLITE:
         return
     for name, model in TABLE_MODELS:
         if "id" not in model.__table__.columns:
             continue
         try:
+            seq = db.execute(
+                text("SELECT pg_get_serial_sequence(:tabla, 'id')"),
+                {"tabla": name},
+            ).scalar()
+            if not seq:
+                candidato = f"{name}_id_seq"
+                existe = db.execute(
+                    text("SELECT to_regclass(:seq)"),
+                    {"seq": f"public.{candidato}"},
+                ).scalar()
+                seq = candidato if existe else None
+                if not seq:
+                    logger.warning("Secuencia no encontrada para %s — setval omitido", name)
+                    continue
             db.execute(
-                f"SELECT setval(pg_get_serial_sequence('{name}', 'id'), "
-                f"COALESCE((SELECT MAX(id) FROM {name}), 1), "
-                f"(SELECT MAX(id) FROM {name}) IS NOT NULL)"
+                text(
+                    f"SELECT setval('{seq}', "
+                    f"COALESCE((SELECT MAX(id) FROM {name}), 1), "
+                    f"(SELECT MAX(id) FROM {name}) IS NOT NULL)"
+                )
             )
+            logger.info("Secuencia de %s re-sincronizada a %s", name, seq)
         except Exception as e:
             logger.warning("No se pudo resetear secuencia de %s: %s", name, e)
 

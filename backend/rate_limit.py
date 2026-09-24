@@ -41,6 +41,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         client_ip = request.client.host if request.client else "unknown"
         path = request.url.path
 
+        authorization = request.headers.get("Authorization", "")
+        is_authenticated = authorization.startswith("Bearer ") and len(authorization) > 12
+
         if RATE_LIMIT_ENABLED:
             if path.endswith("/auth/login"):
                 ok = _rate_limiter.check(
@@ -53,7 +56,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         status_code=429,
                         content={"detail": "Demasiados intentos. Espera 5 minutos."},
                     )
-            elif not path.startswith("/api/admin/"):
+            elif not path.startswith("/api/admin/") and not is_authenticated:
                 ok = _rate_limiter.check(
                     f"general:{client_ip}", RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW
                 )
