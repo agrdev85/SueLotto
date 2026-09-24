@@ -1,10 +1,14 @@
 import json
 import re
+import logging
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, func, and_, or_, cast, String
+from sqlalchemy import desc, func, and_, or_, cast, String, insert
+from sqlalchemy.exc import IntegrityError
 from typing import Optional
 from datetime import date, timedelta
 from backend.models import Resultado, Charada, Adivinanza, PosibleSalir, OtherGameResult
+
+logger = logging.getLogger("suenalotto.crud")
 
 
 def bulk_insert_resultados(db: Session, resultados: list[dict]):
@@ -13,8 +17,6 @@ def bulk_insert_resultados(db: Session, resultados: list[dict]):
     para cargar 40k+ registros sobre Postgres remoto como Neon)."""
     if not resultados:
         return
-
-    from sqlalchemy import insert
 
     juegos = {r["juego"] for r in resultados if isinstance(r, dict)}
     existentes = set()
@@ -34,10 +36,28 @@ def bulk_insert_resultados(db: Session, resultados: list[dict]):
         if k not in existentes:
             nuevos.append(r)
 
+    if not nuevos:
+        return
+
     stmt = insert(Resultado)
-    for i in range(0, len(nuevos), 500):
-        db.execute(stmt, nuevos[i:i + 500])
-    db.commit()
+    try:
+        for i in range(0, len(nuevos), 500):
+            db.execute(stmt, nuevos[i:i + 500])
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        if "already exists" in str(e.orig):
+            logger.warning("Posible secuencia desincronizada en %s; re-sincronizando y reintentando...", len(nuevos))
+            try:
+                from backend.db_manager import _reset_sequences
+                _reset_sequences(db)
+            except Exception as exc:
+                logger.warning("No se pudo re-sincronizar secuencias: %s", exc)
+            for i in range(0, len(nuevos), 500):
+                db.execute(stmt, nuevos[i:i + 500])
+            db.commit()
+        else:
+            raise
 
 
 def get_ultimos_resultados(db: Session, juego: str, sorteo: Optional[str] = None, limit: int = 20):
