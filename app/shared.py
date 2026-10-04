@@ -122,9 +122,25 @@ def api_post(path, json_data=None, token=None, timeout=20):
         return None
     except httpx.ConnectError:
         st.toast("🔌 Servidor no disponible. Intenta de nuevo.", icon="⚠️")
+        st.session_state["last_api_error"] = "SERVICIO_NO_DISPONIBLE"
         return None
     except:
+        st.session_state["last_api_error"] = "ERROR_INTERNO"
         return None
+
+
+def _login_error_ui():
+    err = str(st.session_state.get("last_api_error", "") or "").lower()
+    if "servicio_no_disponible" in err or "connecterror" in err or "connection refused" in err or "could not connect" in err:
+        st.error("🔌 El servidor no está disponible en este momento. Intenta en unos minutos.")
+    elif "demasiados" in err:
+        st.error("⏳ Demasiados intentos. Espera unos minutos y vuelve a intentar.")
+    elif "error_interno" in err:
+        st.error("⚠️ Error inesperado en el servidor. Intenta de nuevo.")
+    elif err and "usuario o contraseña incorrectos" not in err and "401" not in err:
+        st.error(f"⚠️ {err}")
+    else:
+        st.error("Usuario o contraseña incorrectos")
 
 
 def api_upload(path, files=None, data=None, timeout=30):

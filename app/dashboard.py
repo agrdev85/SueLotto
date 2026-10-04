@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.shared import render_global_header, api_get, api_post, api_upload, init_session_state
+from app.shared import render_global_header, api_get, api_post, api_upload, init_session_state, _login_error_ui
 
 init_session_state()
 
@@ -556,7 +556,7 @@ if not st.session_state.get("user"):
                         st.session_state["login_time"] = time.time()
                         st.rerun()
                     else:
-                        st.error("Usuario o contraseña incorrectos")
+                        _login_error_ui()
             if st.button("¿Olvidaste tu contraseña?", key="forgot_btn", type="secondary"):
                 st.session_state["show_forgot"] = True
             if st.session_state.get("show_forgot"):

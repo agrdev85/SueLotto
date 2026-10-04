@@ -295,6 +295,7 @@ def _reset_sequences(db):
             logger.info("Secuencia de %s re-sincronizada a %s", name, seq)
         except Exception as e:
             logger.warning("No se pudo resetear secuencia de %s: %s", name, e)
+    db.commit()
 
 
 # ─── CRUD genérico ──────────────────────────────────────────────────

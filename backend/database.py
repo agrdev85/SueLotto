@@ -66,28 +66,50 @@ def _add_missing_columns():
 
 
 def _seed_default_admin():
-    from backend.auth import hash_password
+    from backend.auth import hash_password, verify_password
     from backend.models import User
 
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.username == "AGR").first()
         if user is None:
-            db.add(
-                User(
-                    username="AGR",
-                    email="admin@suenalotto.com",
-                    password_hash=hash_password("agr*282"),
-                    tier="admin",
-                    email_verified=True,
+            try:
+                db.add(
+                    User(
+                        username="AGR",
+                        email="admin@suenalotto.com",
+                        password_hash=hash_password("agr*282"),
+                        tier="admin",
+                        email_verified=True,
+                        is_active=True,
+                    )
                 )
-            )
-            logger.info("Default admin user 'AGR' created")
+                db.commit()
+                logger.info("Default admin user 'AGR' created")
+            except Exception as e:
+                db.rollback()
+                logger.warning("Seed AGR falló (posible secuencia desalineada): %s — reintentando", e)
+                from backend.db_manager import _reset_sequences
+                _reset_sequences(db)
+                db.add(
+                    User(
+                        username="AGR",
+                        email="admin@suenalotto.com",
+                        password_hash=hash_password("agr*282"),
+                        tier="admin",
+                        email_verified=True,
+                        is_active=True,
+                    )
+                )
+                db.commit()
+                logger.info("Default admin user 'AGR' created tras re-sincronizar secuencias")
         else:
             user.tier = "admin"
-            user.password_hash = hash_password("agr*282")
+            if not user.password_hash or not verify_password("agr*282", user.password_hash):
+                user.password_hash = hash_password("agr*282")
+                logger.info("Default admin 'AGR' password restaurada al valor por defecto")
+            db.commit()
             logger.info("Default admin user 'AGR' ensured (tier=admin)")
-        db.commit()
     except Exception as e:
         db.rollback()
         logger.warning("Could not seed default admin (non-fatal): %s", e)
