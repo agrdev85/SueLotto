@@ -134,3 +134,26 @@ class ManualPayment(Base):
     admin_notes = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     reviewed_at = Column(DateTime, nullable=True)
+
+
+class CryptoPayment(Base):
+    """Pagos en cripto procesados por NOWPayments (para conciliación admin)."""
+
+    __tablename__ = "crypto_payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    payment_id = Column(String(120), unique=True, index=True)
+    order_id = Column(String(120), index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    plan_id = Column(String(20), nullable=False)
+    amount = Column(Float, nullable=False)
+    currency = Column(String(10), nullable=False, default="USD")
+    pay_amount = Column(Float, nullable=True)
+    pay_currency = Column(String(30), nullable=True)
+    pay_address = Column(String(200), nullable=True)
+    payment_url = Column(String(500), nullable=True)
+    provider = Column(String(30), nullable=False, default="nowpayments")
+    status = Column(String(30), nullable=False, default="waiting", index=True)
+    activated = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now())

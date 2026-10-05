@@ -10,6 +10,7 @@ Proporciona:
 import os
 import json
 import time
+import base64
 import logging
 import threading
 from datetime import datetime, date
@@ -53,6 +54,7 @@ TABLE_MODELS = [
     ("user_usage", models.UserUsage),
     ("other_games", models.OtherGameResult),
     ("manual_payments", models.ManualPayment),
+    ("crypto_payments", models.CryptoPayment),
 ]
 
 TABLE_BY_NAME = {name: model for name, model in TABLE_MODELS}
@@ -83,15 +85,28 @@ _last_backup_key = None
 
 # ─── Serialización ──────────────────────────────────────────────────
 
+B64_PREFIX = "__b64__:"
+
+
 def _serialize_value(v):
     if isinstance(v, (datetime, date)):
         return v.isoformat()
+    if isinstance(v, (bytes, bytearray, memoryview)):
+        # Las columnas binarias (p.ej. el recibo de un pago manual) no son
+        # JSON-serializables: FastAPI las intentaba decodificar como UTF-8 y
+        # el export fallaba con 500. Se guardan en base64.
+        return B64_PREFIX + base64.b64encode(bytes(v)).decode("ascii")
     return v
 
 
 def _coerce(value, col_type):
     if value is None:
         return None
+    if isinstance(value, str) and value.startswith(B64_PREFIX):
+        try:
+            return base64.b64decode(value[len(B64_PREFIX):])
+        except Exception:
+            return value
     if isinstance(col_type, DateTime):
         if isinstance(value, datetime):
             return value

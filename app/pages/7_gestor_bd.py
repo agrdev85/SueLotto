@@ -228,7 +228,7 @@ def open_create(table, columns):
             st.rerun()
 
 
-tab_tablas, tab_export, tab_backups, tab_historicos, tab_pagos = st.tabs(["📋 Tablas y Registros", "📤 Exportar / Importar", "💾 Copias de Seguridad", "📜 Históricos (PDF)", "💰 Pagos Manuales"])
+tab_tablas, tab_export, tab_backups, tab_historicos, tab_pagos = st.tabs(["📋 Tablas y Registros", "📤 Exportar / Importar", "💾 Copias de Seguridad", "📜 Históricos (PDF)", "💰 Pagos (Manuales · NOWPayments)"])
 
 # ─── Tab 1: CRUD ────────────────────────────────────────────────────
 with tab_tablas:
@@ -527,6 +527,24 @@ _METHOD_LABELS = {
     "otro": "Otro",
 }
 _STATUS_LABELS = {"pending": "⏳ Pendiente", "approved": "✅ Aprobado", "rejected": "❌ Rechazado"}
+_NP_STATUS_LABELS = {
+    "waiting": "⏳ Esperando pago",
+    "pending": "⏳ Esperando pago",
+    "confirming": "🔄 Confirmando en la red",
+    "confirmed": "✅ Confirmado",
+    "sending": "🔄 Enviando",
+    "partially_finished": "🟡 Parcial",
+    "finished": "🎉 Finalizado",
+    "completed": "🎉 Finalizado",
+    "failed": "❌ Fallido",
+    "expired": "⌛ Vencido",
+    "refunded": "↩️ Reembolsado",
+}
+_NP_OK = ("finished", "completed", "confirmed")
+
+
+def _np_status_label(status: str) -> str:
+    return _NP_STATUS_LABELS.get((status or "").lower(), status or "desconocido")
 def _fetch_bytes(path: str):
     try:
         r = httpx.get(
@@ -645,5 +663,108 @@ with tab_pagos:
                             else:
                                 st.success("Solicitud rechazada.")
                                 st.rerun()
+
+    # ─── NOWPayments (cripto) ────────────────────────────────────────────
+    np_sum, _ = _api_call("GET", "/api/payments/nowpayments/summary")
+    np_sum = np_sum or {}
+    if not np_sum.get("configured"):
+        st.info(
+            "⚙️ **NOWPayments no está configurado.** Agrega `NOWPAYMENTS_API_KEY` y "
+            "`NOWPAYMENTS_IPN_SECRET` en las variables de entorno para activarlo."
+        )
+    else:
+        st.markdown(
+            f'<div style="display:flex;gap:1rem;flex-wrap:wrap;margin:0.5rem 0 1rem;">'
+            f'<div style="flex:1;min-width:130px;background:#0f172a;border:1px solid #334155;'
+            f'border-radius:0.75rem;padding:0.75rem;text-align:center;">'
+            f'<div style="color:#94a3b8;font-size:0.75rem;">Pagos registrados</div>'
+            f'<div style="color:#e2e8f0;font-size:1.4rem;font-weight:800;">{np_sum.get("total", 0)}</div></div>'
+            f'<div style="flex:1;min-width:130px;background:#0f172a;border:1px solid rgba(34,197,94,0.4);'
+            f'border-radius:0.75rem;padding:0.75rem;text-align:center;">'
+            f'<div style="color:#94a3b8;font-size:0.75rem;">Activados</div>'
+            f'<div style="color:#22c55e;font-size:1.4rem;font-weight:800;">{np_sum.get("activated", 0)}</div></div>'
+            f'<div style="flex:1;min-width:130px;background:#0f172a;border:1px solid rgba(251,191,36,0.4);'
+            f'border-radius:0.75rem;padding:0.75rem;text-align:center;">'
+            f'<div style="color:#94a3b8;font-size:0.75rem;">Cobrado (USD)</div>'
+            f'<div style="color:#fbbf24;font-size:1.4rem;font-weight:800;">${np_sum.get("total_cobrado", 0):.2f}</div></div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        np_pagos, np_err = _api_call("GET", "/api/payments/nowpayments/list")
+        if np_err:
+            st.error(f"No se pudieron cargar los pagos cripto: {np_err}")
+        elif not np_pagos:
+            st.info("Todavía no hay pagos con NOWPayments.")
+        else:
+            np_filtro = st.segmented_control(
+                "Estado cripto",
+                options=["Todos", "waiting", "finished", "failed"],
+                format_func=lambda x: {"Todos": "📋 Todos"}.get(x, _np_status_label(x)),
+                default="Todos",
+                key="gbd_np_filtro",
+            )
+            np_filtrados = [
+                p for p in np_pagos
+                if np_filtro == "Todos" or (p.get("status") or "").lower() == np_filtro
+            ]
+            st.caption(f"Mostrando {len(np_filtrados)} de {len(np_pagos)} pagos cripto.")
+
+            for p in np_filtrados:
+                _pid = p["payment_id"]
+                _st = (p.get("status") or "").lower()
+                _titulo = (
+                    f"🪙 {_pid} · {p.get('username') or p.get('user_id')} · "
+                    f"{_PLAN_LABELS.get(p.get('plan_id'), p.get('plan_id'))} · "
+                    f"{_np_status_label(_st)}"
+                )
+                with st.expander(_titulo, expanded=(not p.get("activated") and _st in _NP_OK)):
+                    st.markdown(
+                        f'<div style="font-size:0.85rem;color:#94a3b8;">'
+                        f'💰 <b style="color:#f1f5f9;">${p.get("amount", 0):.2f}</b> '
+                        f'{p.get("currency", "USD")} · '
+                        f'crypto: <b style="color:#f1f5f9;">{p.get("pay_amount") or "—"} '
+                        f'{str(p.get("pay_currency") or "").upper()}</b> · '
+                        f'estado: <b style="color:#f1f5f9;">{_np_status_label(_st)}</b><br>'
+                        f'usuario: <b style="color:#f1f5f9;">{p.get("username") or "—"}</b>'
+                        f'{" (" + p.get("email") + ")" if p.get("email") else ""} · '
+                        f'plan actual: <b style="color:#f1f5f9;">'
+                        f'{_PLAN_LABELS.get(p.get("tier"), p.get("tier") or "—")}</b> · '
+                        f'creado: {str(p.get("created_at") or "")[:16]}</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if p.get("pay_address"):
+                        st.code(str(p["pay_address"]), language=None)
+                    if p.get("payment_url"):
+                        st.markdown(
+                            f'<a href="{p["payment_url"]}" target="_blank">🔗 Abrir factura en NOWPayments</a>',
+                            unsafe_allow_html=True,
+                        )
+
+                    b_col1, b_col2 = st.columns(2)
+                    with b_col1:
+                        if st.button("🔄 Consultar estado en NOWPayments", key=f"gbd_np_ref_{_pid}", use_container_width=True):
+                            res, err = _api_call("POST", f"/api/payments/nowpayments/{_pid}/refresh")
+                            if err:
+                                st.error(f"Error: {err}")
+                            elif res and res.get("activated"):
+                                st.success("✅ Pago confirmado y plan activado.")
+                                st.rerun()
+                            else:
+                                st.info(
+                                    f"Estado actual: {_np_status_label((res or {}).get('payment_status', ''))}"
+                                )
+                                st.rerun()
+                    with b_col2:
+                        if not p.get("activated"):
+                            if st.button("✅ Activar plan manualmente", key=f"gbd_np_act_{_pid}", type="primary", use_container_width=True):
+                                res, err = _api_call("POST", f"/api/payments/nowpayments/{_pid}/activate")
+                                if err:
+                                    st.error(f"Error: {err}")
+                                else:
+                                    st.success("✅ Plan activado.")
+                                    st.rerun()
+                        else:
+                            st.success("Plan ya activado por este pago.")
 
     st.markdown('</div>', unsafe_allow_html=True)

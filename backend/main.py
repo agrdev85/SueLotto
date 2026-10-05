@@ -1361,6 +1361,13 @@ async def api_nowpayments_webhook(request: Request):
             plan_id=result["plan_id"],
             payment_id=result.get("payment_id", ""),
         )
+        nowpayments.update_payment_status(
+            payment_id=result.get("payment_id", ""),
+            status=result.get("status", ""),
+            pay_amount=data.get("pay_amount"),
+            pay_currency=data.get("pay_currency"),
+            activated=True,
+        )
 
     return {"status": "ok"}
 
@@ -1395,7 +1402,113 @@ def api_nowpayments_status(
         )
         activated = bool(out and out.get("action") == "activate")
 
+    nowpayments.update_payment_status(
+        payment_id=payment_id,
+        status=status,
+        pay_amount=data.get("pay_amount"),
+        pay_currency=data.get("pay_currency"),
+        pay_address=data.get("pay_address"),
+        activated=True if activated else None,
+    )
+
     return {"payment_status": status, "activated": activated}
+
+
+# ─── NOWPayments · Panel admin (conciliación) ──────────────────────────
+
+@app.get("/api/payments/nowpayments/list")
+def api_nowpayments_list(
+    status: Optional[str] = Query(None),
+    admin: User = Depends(_require_admin),
+):
+    return nowpayments.list_payments(status=status)
+
+
+@app.get("/api/payments/nowpayments/summary")
+def api_nowpayments_summary(admin: User = Depends(_require_admin)):
+    pagos = nowpayments.list_payments(limit=500)
+    por_estado: dict = {}
+    activated = 0
+    total_cobrado = 0.0
+    for p in pagos:
+        por_estado[p["status"]] = por_estado.get(p["status"], 0) + 1
+        if p["activated"]:
+            activated += 1
+            total_cobrado += p.get("amount") or 0
+    return {
+        "total": len(pagos),
+        "activated": activated,
+        "total_cobrado": round(total_cobrado, 2),
+        "por_estado": por_estado,
+        "configured": nowpayments.is_configured(),
+    }
+
+
+@app.post("/api/payments/nowpayments/{payment_id}/refresh")
+def api_nowpayments_refresh(
+    payment_id: str,
+    admin: User = Depends(_require_admin),
+):
+    """Consulta el estado real en NOWPayments y activa el plan si ya está pagado."""
+    data = nowpayments.get_payment_status(payment_id)
+    if not data:
+        raise HTTPException(404, "NOWPayments no devolvió información de ese pago.")
+
+    status = (data.get("payment_status") or "").lower()
+    result = nowpayments.process_webhook({
+        "order_id": str(data.get("order_id", "") or ""),
+        "payment_status": status,
+        "payment_id": payment_id,
+    })
+    activated = False
+    if result and result.get("action") == "activate":
+        out = _activate_payment(
+            user_id=result["user_id"],
+            plan_id=result["plan_id"],
+            payment_id=payment_id,
+        )
+        activated = bool(out and out.get("action") == "activate")
+
+    nowpayments.update_payment_status(
+        payment_id=payment_id,
+        status=status,
+        pay_amount=data.get("pay_amount"),
+        pay_currency=data.get("pay_currency"),
+        pay_address=data.get("pay_address"),
+        activated=True if activated else None,
+    )
+    return {"payment_status": status, "activated": activated}
+
+
+@app.post("/api/payments/nowpayments/{payment_id}/activate")
+def api_nowpayments_activate(
+    payment_id: str,
+    admin: User = Depends(_require_admin),
+):
+    """Activación manual (respaldo admin) — verifica primero contra la API."""
+    pagos = nowpayments.list_payments(limit=500)
+    row = next((p for p in pagos if p["payment_id"] == payment_id), None)
+    if row is None:
+        raise HTTPException(404, "Ese pago no está registrado en la base de datos.")
+
+    data = nowpayments.get_payment_status(payment_id)
+    status = (data.get("payment_status") if data else row["status"]) or ""
+    status = status.lower()
+    if status not in ("finished", "confirmed", "completed"):
+        raise HTTPException(
+            400,
+            f"El pago aún no está confirmado en NOWPayments (estado: {status or 'desconocido'}).",
+        )
+
+    out = _activate_payment(
+        user_id=row["user_id"],
+        plan_id=row["plan_id"],
+        payment_id=payment_id,
+    )
+    if not out or out.get("action") != "activate":
+        raise HTTPException(400, "No se pudo activar el plan.")
+    nowpayments.update_payment_status(payment_id, status, activated=True)
+    return {"payment_status": status, "activated": True}
 
 
 # ─── Manual payments (Transfermóvil / MLC) ─────────────────────────

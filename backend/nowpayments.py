@@ -110,9 +110,11 @@ def create_payment_url(
                 username, plan_id, data.get("payment_id"),
                 data.get("pay_amount"), data.get("pay_currency"),
             )
+            payment_id = str(data.get("payment_id", "") or "")
+            record_payment(user_id, plan_id, amount, plan["currency"], order_id, data)
             return {
                 "payment_url": data.get("payment_url"),
-                "payment_id": str(data.get("payment_id", "")),
+                "payment_id": payment_id,
                 "external_id": order_id,
                 "amount": amount,
                 "currency": plan["currency"],
@@ -192,3 +194,124 @@ def get_payment_status(payment_id: str) -> Optional[dict]:
     except Exception as e:
         logger.error("NOWPayments status check error: %s", e)
         return None
+
+
+# ─── Registro local de pagos (conciliación admin) ───────────────────────
+
+def _session():
+    from backend.database import SessionLocal
+    return SessionLocal()
+
+
+def _row_to_dict(row, user=None) -> dict:
+    return {
+        "id": row.id,
+        "payment_id": row.payment_id,
+        "order_id": row.order_id,
+        "user_id": row.user_id,
+        "username": getattr(user, "username", None),
+        "email": getattr(user, "email", None),
+        "tier": getattr(user, "tier", None),
+        "plan_id": row.plan_id,
+        "amount": row.amount,
+        "currency": row.currency,
+        "pay_amount": row.pay_amount,
+        "pay_currency": row.pay_currency,
+        "pay_address": row.pay_address,
+        "payment_url": row.payment_url,
+        "provider": row.provider,
+        "status": row.status,
+        "activated": bool(row.activated),
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def record_payment(user_id: int, plan_id: str, amount: float, currency: str,
+                   order_id: str, data: dict) -> Optional[str]:
+    """Guarda la factura creada para poder conciliarla y auditarla después."""
+    from backend.models import CryptoPayment
+    payment_id = str(data.get("payment_id", "") or "")
+    sess = _session()
+    try:
+        row = None
+        if payment_id:
+            row = sess.query(CryptoPayment).filter(
+                CryptoPayment.payment_id == payment_id
+            ).first()
+        if row is None:
+            row = CryptoPayment(payment_id=payment_id, user_id=user_id,
+                                plan_id=plan_id, amount=amount, currency=currency)
+            sess.add(row)
+        row.order_id = order_id
+        row.pay_amount = data.get("pay_amount")
+        row.pay_currency = data.get("pay_currency")
+        row.pay_address = data.get("pay_address")
+        row.payment_url = data.get("payment_url")
+        row.status = (data.get("payment_status") or "waiting").lower()
+        sess.commit()
+        return payment_id
+    except Exception as e:
+        sess.rollback()
+        logger.warning("No se pudo registrar el pago cripto %s: %s", payment_id, e)
+        return None
+    finally:
+        sess.close()
+
+
+def update_payment_status(payment_id: str, status: str, pay_amount=None,
+                          pay_currency=None, pay_address=None,
+                          activated: Optional[bool] = None) -> bool:
+    """Actualiza el estado guardado de un pago (tras IPN o consulta manual)."""
+    from backend.models import CryptoPayment
+    if not payment_id:
+        return False
+    sess = _session()
+    try:
+        row = sess.query(CryptoPayment).filter(
+            CryptoPayment.payment_id == str(payment_id)
+        ).first()
+        if row is None:
+            return False
+        row.status = (status or row.status).lower()
+        if pay_amount is not None:
+            row.pay_amount = pay_amount
+        if pay_currency:
+            row.pay_currency = pay_currency
+        if pay_address:
+            row.pay_address = pay_address
+        if activated is not None:
+            row.activated = activated
+        row.updated_at = datetime.utcnow()
+        sess.commit()
+        return True
+    except Exception as e:
+        sess.rollback()
+        logger.warning("No se pudo actualizar el pago cripto %s: %s", payment_id, e)
+        return False
+    finally:
+        sess.close()
+
+
+def list_payments(status: Optional[str] = None, limit: int = 200) -> list[dict]:
+    """Lista los pagos cripto registrados (para el panel admin)."""
+    from backend.models import CryptoPayment, User
+    sess = _session()
+    try:
+        q = sess.query(CryptoPayment)
+        if status:
+            q = q.filter(CryptoPayment.status == status.lower())
+        rows = q.order_by(CryptoPayment.created_at.desc()).limit(limit).all()
+        users = {}
+        if rows:
+            users = {
+                u.id: u for u in sess.query(User).filter(
+                    User.id.in_([r.user_id for r in rows])
+                ).all()
+            }
+        return [_row_to_dict(r, users.get(r.user_id)) for r in rows]
+    except Exception as e:
+        logger.warning("No se pudieron listar los pagos cripto: %s", e)
+        return []
+    finally:
+        sess.close()
