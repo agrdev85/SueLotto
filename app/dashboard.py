@@ -591,7 +591,7 @@ if not st.session_state.get("user"):
             if plan_sel != "free":
                 reg_method = st.radio(
                     "¿Cómo vas a pagar?",
-                    ["Qvapay (automático)", "Transfermóvil / MLC (manual)"],
+                    ["Qvapay (automático)", "NOWPayments (USDT/crypto)", "Transfermóvil / MLC (manual)"],
                     key="reg_pay_method",
                 )
             with st.form("register_form"):
@@ -600,9 +600,12 @@ if not st.session_state.get("user"):
                 rp = st.text_input("Contraseña", type="password", placeholder="Mínimo 4 caracteres", key="reg_pass")
                 if st.form_submit_button("Crear Cuenta", type="primary", width='stretch'):
                     api_tier = plan_sel
+                    pay_method = "qvapay"
                     if plan_sel != "free" and reg_method.startswith("Transfermóvil"):
                         api_tier = "free"
-                    res = api_post("/api/auth/register", {"username": ru, "email": re, "password": rp, "tier": api_tier})
+                    elif reg_method.startswith("NOWPayments"):
+                        pay_method = "nowpayments"
+                    res = api_post("/api/auth/register", {"username": ru, "email": re, "password": rp, "tier": api_tier, "payment_method": pay_method})
                     if res and "access_token" in res:
                         st.session_state["token"] = res["access_token"]
                         st.session_state["user"] = res["user"]
@@ -611,6 +614,9 @@ if not st.session_state.get("user"):
                             st.session_state.pop(_k, None)
                         pay_url = res.get("payment_url")
                         if pay_url:
+                            _np_pid = (res.get("payment") or {}).get("payment_id")
+                            if _np_pid:
+                                st.session_state["_np_payment_id"] = _np_pid
                             st.success("Cuenta creada. Redirigiendo al pago...")
                             st.markdown(
                                 f'<meta http-equiv="refresh" content="0;url={pay_url}">',
@@ -629,8 +635,9 @@ if not st.session_state.get("user"):
                             st.rerun()
                     else:
                         detail = st.session_state.get("last_api_error")
-                        if plan_sel != "free" and reg_method.startswith("Qvapay") and detail and "pago" in detail.lower():
-                            st.error("El pago automático (Qvapay) no está disponible en este momento. Elige 'Transfermóvil / MLC (manual)' para completar tu registro.")
+                        _auto = reg_method.startswith("Qvapay") or reg_method.startswith("NOWPayments")
+                        if plan_sel != "free" and _auto and detail and ("pago" in detail.lower() or "nowpayments" in detail.lower()):
+                            st.error(f"El pago automático ({reg_method}) no está disponible en este momento. Elige 'Transfermóvil / MLC (manual)' o el plan Gratis para completar tu registro.")
                         else:
                             st.error(f"Error al registrar: {detail}" if detail else "Error al registrar. Revisa los datos e intenta de nuevo.")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1291,7 +1298,8 @@ if user_tier == "free":
     buy_plan = st.radio("Selecciona un plan", ["pro", "lifetime"],
                         format_func=lambda x: _fmt_plan(x, _plans_api, _promo_api),
                         horizontal=True)
-    upg_method = st.radio("¿Cómo vas a pagar?", ["Qvapay (automático)", "Transfermóvil / MLC (manual)"],
+    upg_method = st.radio("¿Cómo vas a pagar?",
+                          ["Qvapay (automático)", "NOWPayments (USDT/crypto)", "Transfermóvil / MLC (manual)"],
                           horizontal=True, key="upg_pay_method")
     if st.button("💳 Ir a Pago", type="primary", use_container_width=True):
         if upg_method.startswith("Transfermóvil"):
@@ -1299,11 +1307,20 @@ if user_tier == "free":
             st.session_state["_mp_scrolled"] = False
             st.rerun()
         else:
-            pay_resp = api_post("/api/payments/create", {"plan": buy_plan})
+            pay_method = "nowpayments" if upg_method.startswith("NOWPayments") else "qvapay"
+            pay_resp = api_post("/api/payments/create", {"plan": buy_plan, "method": pay_method})
             if pay_resp and pay_resp.get("payment_url"):
                 st.markdown(f'<meta http-equiv="refresh" content="0;url={pay_resp["payment_url"]}">', unsafe_allow_html=True)
-                st.success(f"Redirigiendo a Qvapay para completar el pago...")
+                st.success(f"Redirigiendo a {upg_method.split(' (')[0]} para completar el pago...")
                 st.markdown(f'<a href="{pay_resp["payment_url"]}" target="_blank">Haz clic aquí si no redirige automáticamente</a>', unsafe_allow_html=True)
+                if pay_method == "nowpayments" and pay_resp.get("payment_id"):
+                    st.session_state["_np_payment_id"] = pay_resp["payment_id"]
+                    _amt = pay_resp.get("pay_amount") or "?"
+                    _cur = str(pay_resp.get("pay_currency") or "").upper()
+                    st.caption(
+                        f"🪙 Paga {_amt} {_cur} y tu plan se activa en cuanto "
+                        "NOWPayments confirme la transacción."
+                    )
             else:
                 st.warning("El sistema de pagos no está disponible en este momento. Contacta al soporte.")
 

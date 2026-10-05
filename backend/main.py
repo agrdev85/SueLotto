@@ -43,6 +43,8 @@ from backend.email_service import (
     is_configured as email_configured,
 )
 from backend.qvapay import create_payment_url, process_webhook, verify_webhook, mock_enabled, is_configured as qvapay_configured, PLANS, get_promo_info, get_lifetime_price, increment_promo_purchases
+from backend import nowpayments
+from backend.nowpayments import IPN_PATH as NOWPAYMENTS_IPN_PATH
 from backend.db_manager import (
     export_db, import_db, run_backup, list_backups, restore_backup,
     delete_backup, get_backup_status, start_backup_scheduler,
@@ -804,12 +806,18 @@ def api_register(data: dict = Body(...), db: Session = Depends(get_db)):
 
     payment_response = None
     if tier in ("pro", "lifetime"):
-        payment_response = create_payment_url(
-            plan_id=tier,
-            username=user.username,
-            email=user.email,
-            user_id=user.id,
-        )
+        pay_method = str(data.get("payment_method") or "qvapay").strip().lower()
+        if pay_method == "nowpayments" and nowpayments.is_configured():
+            payment_response = nowpayments.create_payment_url(
+                plan_id=tier, username=user.username, email=email, user_id=user.id
+            )
+        else:
+            payment_response = create_payment_url(
+                plan_id=tier,
+                username=user.username,
+                email=email,
+                user_id=user.id,
+            )
         if not payment_response:
             db.rollback()
             raise HTTPException(
@@ -1135,6 +1143,7 @@ def api_get_plans():
             for pid, p in PLANS.items()
         },
         "qvapay_configured": qvapay_configured(),
+        "nowpayments_configured": nowpayments.is_configured(),
         "promo": promo,
     }
 
@@ -1145,6 +1154,7 @@ def api_create_payment(
     current_user: User = Depends(_require_user),
 ):
     plan_id = data.get("plan", "").strip().lower()
+    method = (data.get("method") or "qvapay").strip().lower()
     if plan_id not in PLANS:
         raise HTTPException(400, "Plan inválido")
     if current_user.tier == "lifetime":
@@ -1152,14 +1162,25 @@ def api_create_payment(
     if current_user.tier == "pro" and plan_id == "pro":
         raise HTTPException(400, "Ya tienes el plan Pro")
 
-    result = create_payment_url(
-        plan_id=plan_id,
-        username=current_user.username,
-        email=current_user.email,
-        user_id=current_user.id,
-    )
+    if method == "nowpayments":
+        if not nowpayments.is_configured():
+            raise HTTPException(503, "NOWPayments no está disponible en este momento.")
+        result = nowpayments.create_payment_url(
+            plan_id=plan_id,
+            username=current_user.username,
+            email=current_user.email,
+            user_id=current_user.id,
+        )
+    else:
+        result = create_payment_url(
+            plan_id=plan_id,
+            username=current_user.username,
+            email=current_user.email,
+            user_id=current_user.id,
+        )
     if not result:
         raise HTTPException(503, "No se pudo crear el pago. Intenta de nuevo más tarde.")
+    result.setdefault("method", method)
     return result
 
 
@@ -1178,19 +1199,28 @@ def _activate_payment(user_id: int, plan_id: str, payment_id: str = "") -> Optio
         if not plan:
             logger.error("Payment activation: invalid plan %s", plan_id)
             return {"action": "error", "reason": "invalid_plan"}
+        prev_tier = user.tier
+        prev_expiry = user.tier_expires
+        already_active = (
+            prev_tier == plan_id and prev_expiry is not None and prev_expiry >= date.today()
+        )
         user.tier = plan_id
-        user.tier_expires = date.today() + timedelta(days=plan["days"])
+        if not already_active:
+            user.tier_expires = date.today() + timedelta(days=plan["days"])
         sess.commit()
         logger.info(
-            "Payment activated: user=%s plan=%s expires=%s",
+            "Payment activated: user=%s plan=%s expires=%s%s",
             user.username, plan_id, user.tier_expires,
+            " (ya activo, no se renueva)" if already_active else "",
         )
+        if already_active:
+            return {"action": "activate", "user_id": user_id, "plan_id": plan_id, "ok": True, "renewed": False}
         send_payment_receipt(
             user.email, user.username,
             plan["name"], f"${plan['amount']:.2f}",
             payment_id,
         )
-        if plan_id == "lifetime":
+        if plan_id == "lifetime" and prev_tier != "lifetime":
             total = increment_promo_purchases()
             logger.info("Lifetime promo counter: %d", total)
         return {"action": "activate", "user_id": user_id, "plan_id": plan_id, "ok": True}
@@ -1304,6 +1334,68 @@ async def api_payments_webhook(request: Request):
         )
 
     return {"status": "ok"}
+
+
+@app.post(NOWPAYMENTS_IPN_PATH)
+async def api_nowpayments_webhook(request: Request):
+    """IPN de NOWPayments: notificación firmada (HMAC-SHA512) del pago."""
+    body = await request.body()
+    signature = request.headers.get("x-nowpayments-sig", "")
+
+    is_prod = os.getenv("ENVIRONMENT", "").lower() == "production"
+    if is_prod and not signature:
+        logger.warning("NOWPayments IPN missing signature in production")
+        raise HTTPException(401, "Missing signature")
+    if not nowpayments.verify_webhook(body, signature):
+        raise HTTPException(401, "Invalid signature")
+
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON")
+
+    result = nowpayments.process_webhook(data)
+    if result and result.get("action") == "activate":
+        _activate_payment(
+            user_id=result["user_id"],
+            plan_id=result["plan_id"],
+            payment_id=result.get("payment_id", ""),
+        )
+
+    return {"status": "ok"}
+
+
+@app.get("/api/payments/nowpayments/status")
+def api_nowpayments_status(
+    payment_id: str,
+    current_user: User = Depends(_require_user),
+):
+    """Respaldo del IPN: comprueba el pago directamente en NOWPayments y activa
+    el plan si está terminado (el order_id incluye el user_id)."""
+    if not nowpayments.is_configured():
+        raise HTTPException(503, "NOWPayments no está disponible en este momento.")
+
+    data = nowpayments.get_payment_status(payment_id)
+    if not data:
+        raise HTTPException(404, "Pago no encontrado en NOWPayments.")
+
+    order_id = str(data.get("order_id", "") or "")
+    status = (data.get("payment_status") or "").lower()
+    result = nowpayments.process_webhook(
+        {"order_id": order_id, "payment_status": status, "payment_id": payment_id}
+    )
+    activated = False
+    if result and result.get("action") == "activate":
+        if result["user_id"] != current_user.id:
+            raise HTTPException(403, "El pago no pertenece a tu cuenta.")
+        out = _activate_payment(
+            user_id=result["user_id"],
+            plan_id=result["plan_id"],
+            payment_id=payment_id,
+        )
+        activated = bool(out and out.get("action") == "activate")
+
+    return {"payment_status": status, "activated": activated}
 
 
 # ─── Manual payments (Transfermóvil / MLC) ─────────────────────────

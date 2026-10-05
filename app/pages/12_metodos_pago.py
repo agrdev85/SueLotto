@@ -58,6 +58,7 @@ st.markdown("""
     .pay-card p { color: var(--text-secondary); font-size: 0.9rem; }
     .pay-method { display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 2rem; padding: 0.25rem 0.9rem; font-size: 0.75rem; font-weight: 700; margin-bottom: 0.75rem; }
     .pay-method.qvapay { background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.45); color: #c4b5fd; }
+    .pay-method.nowpayments { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.45); color: #6ee7b7; }
     .pay-method.manual { background: rgba(255,107,0,0.12); border: 1px solid rgba(255,152,56,0.5); color: #fdba74; }
     .step { display: flex; gap: 0.75rem; margin: 0.5rem 0; align-items: flex-start; }
     .step-num { flex-shrink: 0; width: 1.7rem; height: 1.7rem; border-radius: 50%; background: rgba(251,191,36,0.15); border: 1px solid rgba(251,191,36,0.4); color: #fbbf24; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; margin-top: 0.1rem; }
@@ -68,7 +69,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="hero"><h1>💳 Métodos de Pago</h1><p>Aprende a pagar tu plan Pro o De por Vida paso a paso, tanto por Qvapay como por Transfermóvil / MLC.</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="hero"><h1>💳 Métodos de Pago</h1><p>Aprende a pagar tu plan Pro o De por Vida paso a paso: Qvapay, NOWPayments (cripto) o Transfermóvil / MLC.</p></div>', unsafe_allow_html=True)
 
 # ─── Comparación de métodos ───────────────────────────────────────────────
 st.markdown("""
@@ -80,11 +81,15 @@ st.markdown("""
             <p><b>Instantáneo.</b> Pagas con CUP o USDT y tu plan se activa solo en segundos, sin esperar a nadie. Ideal si ya tienes saldo en Qvapay.</p>
         </div>
         <div style="flex:1;min-width:220px;">
+            <span class="pay-method nowpayments">🪙 NOWPayments — automático</span>
+            <p><b>Cripto directo.</b> Pagas con USDT, BTC o la moneda que elijas en la pasarela. Tu plan se activa solo cuando la red confirma la transacción.</p>
+        </div>
+        <div style="flex:1;min-width:220px;">
             <span class="pay-method manual">📲 Transfermóvil / MLC — manual</span>
             <p><b>Para usuarios en Cuba.</b> Pagas por transferencia y el administrador verifica tu comprobante y activa el plan minutos después. Necesitas contacto con el soporte.</p>
         </div>
     </div>
-    <div class="pay-note">💡 <b>Tip:</b> si nunca has usado Qvapay y estás en Cuba, la vía <b>Transfermóvil/MLC</b> suele ser más directa. Si ya tienes saldo en Qvapay o tarjetas internacionales, <b>Qvapay</b> es más rápido.</div>
+    <div class="pay-note">💡 <b>Tip:</b> si nunca has usado Qvapay y estás en Cuba, la vía <b>Transfermóvil/MLC</b> suele ser más directa. Si ya tienes saldo en Qvapay o tarjetas internacionales, <b>Qvapay</b> es más rápido. Con USDT en cualquier exchange, <b>NOWPayments</b> es la opción más cómoda.</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -105,14 +110,33 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 st.markdown("""
-<div class="pay-warn">⚠️ <b>Importante:</b> asegúrate de tener saldo <b>suficiente</b> antes de pagar. Si la factura vence o el pago falla, el enlace de pago caduca: vuelve a la app y genera uno nuevo. Si tienes problemas recargando saldo, el Método 2 (Transfermóvil/MLC) es buena alternativa.</div>
+<div class="pay-warn">⚠️ <b>Importante:</b> asegúrate de tener saldo <b>suficiente</b> antes de pagar. Si la factura vence o el pago falla, el enlace de pago caduca: vuelve a la app y genera uno nuevo. Si tienes problemas recargando saldo, el Método 2 (NOWPayments) o el Método 3 (Transfermóvil/MLC) son buenas alternativas.</div>
 </div>
 """, unsafe_allow_html=True)
 
-# ─── Método 2: Transfermóvil / MLC ────────────────────────────────────────
+# ─── Método 2: NOWPayments ────────────────────────────────────────────────
 st.markdown("""
 <div class="pay-card">
-    <span class="pay-method manual">📲 Método 2 · Manual</span>
+    <span class="pay-method nowpayments">🪙 Método 2 · Automático (cripto)</span>
+    <h3>Pagar con NOWPayments (USDT, BTC y más)</h3>
+    <p>NOWPayments es una pasarela de pago en <b>criptomonedas</b>. Genera una factura con el monto exacto, la envías a la dirección que te muestran y, cuando la red confirma la transacción, tu plan se activa <b>automáticamente</b>.</p>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="step"><div class="step-num">1</div><div class="step-body"><b>Prepara tu billetera cripto.</b> Necesitas USDT, BTC, ETH u otra moneda compatible en tu wallet o exchange. Si aún no tienes cripto, cómpralo en un exchange y retíralo a tu wallet.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body"><b>Elige el método en la app.</b> Al comprar tu plan selecciona <b>"NOWPayments (USDT/crypto)"</b>. La app genera la factura y te abre la pasarela con el monto y la moneda ya listos.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><b>Paga desde tu wallet.</b> Copia la dirección y el monto que muestra NOWPayments, y envía el pago desde tu wallet o exchange. Verifica la red antes de confirmar.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body"><b>Espera la confirmación.</b> Las confirmaciones en red pueden tardar <b>de minutos a unas horas</b> según la moneda. No cierres la app: cuando se confirma, tu plan se activa solo.</div></div>
+<div class="step"><div class="step-num">5</div><div class="step-body"><b>Recibe tu recibo.</b> Al confirmarse el pago se envía un correo de recibo y puedes ver tu plan activo en la app.</div></div>
+<div class="pay-note">💡 <b>Atención al monto:</b> NOWPayments calcula el monto exacto de cripto con su tipo de cambio en el momento de crear la factura. Si el precio cambia, la factura puede vencer y tendrás que generar una nueva.</div>
+<div class="pay-warn">⚠️ <b>Importante:</b> verifica la <b>red</b> y la <b>dirección</b> antes de enviar. Los envíos a una red equivocada o a una dirección incorrecta <b>no se pueden reimbursedir</b>. Si una transacción queda <b>pendiente</b> por mucho tiempo, escríbenos por Telegram con el identificador de pago que aparece en la pasarela.</div>
+""", unsafe_allow_html=True)
+
+# ─── Método 3: Transfermóvil / MLC ────────────────────────────────────────
+st.markdown("""
+<div class="pay-card">
+    <span class="pay-method manual">📲 Método 3 · Manual</span>
     <h3>Pagar con Transfermóvil / MLC (para Cuba)</h3>
     <p>Sin tarjeta internacional ni crypto. Pagas por <b>Transfermóvil</b> o <b>Enzona</b> a la cuenta que te indique el soporte, subes tu comprobante y el administrador activa tu plan.</p>
 """, unsafe_allow_html=True)

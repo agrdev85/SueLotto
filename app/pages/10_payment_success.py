@@ -80,5 +80,27 @@ else:
     st.info("Tu pago ha sido procesado. El plan se activará automáticamente.")
 
 st.markdown("---")
+
+# Respaldo: si el webhook (IPN) no llegó todavía, se consulta el estado real
+# del pago en la pasarela y se activa el plan manualmente.
+_np_pid = st.session_state.get("_np_payment_id")
+if _np_pid:
+    st.info("⏳ Confirmando tu pago con NOWPayments… esto puede tardar unos minutos.")
+    _st = api_get(f"/api/payments/nowpayments/status?payment_id={_np_pid}")
+    if _st:
+        _status = _st.get("payment_status", "")
+        if _st.get("activated"):
+            st.session_state.pop("_np_payment_id", None)
+            st.success("✅ ¡Pago confirmado! Tu plan ya está activo.")
+        elif _status in ("finished", "confirmed", "completed"):
+            st.warning("El pago fue recibido pero aún se está procesando. Tu plan se activará en unos minutos.")
+        elif _status in ("failed", "expired", "refunded"):
+            st.error(f"⚠️ El pago no se completó (estado: {_status}). Genera uno nuevo desde la app.")
+            st.session_state.pop("_np_payment_id", None)
+        else:
+            st.caption(f"Estado actual: {_status or 'en espera'} — puedes cerrar esta página.")
+    else:
+        st.caption("No se pudo consultar el pago todavía. Tu plan se activará automáticamente al confirmarse.")
+
 if st.button("Ir a SueñaLotto", type="primary", use_container_width=True):
     st.switch_page("dashboard.py")
