@@ -372,7 +372,7 @@ def render_global_header():
         if st.button("🚪", key="global_logout_btn", use_container_width=True):
             for k in ["token", "user", "login_time", "last_activity", "last_refresh", "theme", "view_mode", "sorteo_sort_asc", "sorteo_filter"]:
                 st.session_state.pop(k, None)
-            st.rerun()
+            go_to_login()
 
     render_scroll_to_top_button()
 
@@ -508,6 +508,20 @@ def go_to_planes():
     planes/pago. Usa st.switch_page (mantiene la sesión iniciada)."""
     st.session_state["_go_to_planes"] = True
     st.switch_page("dashboard.py")
+
+
+def go_to_login():
+    """Lleva al usuario a la pantalla de inicio de sesión (dashboard).
+
+    Se usa al cerrar sesión y en las guardas de las páginas privadas:
+    en lugar de dejar al usuario en la página abierta (con la zona
+    restringida), navega siempre a la pantalla de login.
+    """
+    try:
+        st.switch_page("dashboard.py")
+    except Exception:
+        pass
+    st.stop()
 
 
 def render_pro_card(

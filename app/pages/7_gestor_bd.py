@@ -8,7 +8,7 @@ from datetime import date, datetime
 st.set_page_config(page_title="Gestor de BD - SueñaLotto", page_icon="🗄️", layout="wide")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from app.shared import render_global_header, api_get, api_post, init_session_state
+from app.shared import render_global_header, api_get, api_post, init_session_state, go_to_login
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,8 +17,7 @@ API_URL = os.getenv("FASTAPI_URL", "http://localhost:8000")
 init_session_state()
 
 if not st.session_state.get("user"):
-    st.markdown('<div style="max-width:500px;margin:3rem auto;text-align:center;padding:3rem;background:#1e293b;border-radius:1rem;border:1px solid #334155;"><div style="font-size:3rem;margin-bottom:1rem;">🔒</div><h2 style="color:#f1f5f9;">Acceso Restringido</h2><p style="color:#94a3b8;">Necesitas iniciar sesión.</p></div>', unsafe_allow_html=True)
-    st.stop()
+    go_to_login()
 
 user_tier = st.session_state.get("user", {}).get("tier")
 if user_tier != "admin":
